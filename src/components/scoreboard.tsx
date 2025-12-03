@@ -1,15 +1,17 @@
-import type { Game, Team } from '@/lib/types';
+import type { Team } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from './ui/card';
-import { Swords } from 'lucide-react';
+import { Swords, EyeOff } from 'lucide-react';
 
 interface ScoreboardProps {
   team1?: Team;
   team2?: Team;
-  // currentTurn is removed
+  playerTeam: 'team1' | 'team2' | null;
 }
 
-function TeamDisplay({ team }: { team?: Team }) {
+function TeamDisplay({ team, isOpponent }: { team?: Team, isOpponent: boolean }) {
+  const showScore = !isOpponent || !team;
+
   return (
     <div
       className={cn(
@@ -19,23 +21,30 @@ function TeamDisplay({ team }: { team?: Team }) {
       <h3 className="font-headline text-2xl font-bold truncate">
         {team?.name || 'Team ?'}
       </h3>
-      <p className="text-4xl font-bold font-mono">
-        {team?.score !== undefined ? team.score : '-'}
-      </p>
+      <div className="text-4xl font-bold font-mono flex items-center justify-center md:justify-start gap-2">
+        {showScore ? (
+            <span>{team?.score !== undefined ? team.score : '-'}</span>
+        ) : (
+            <EyeOff className="h-8 w-8 text-muted-foreground" title="Opponent's score is hidden" />
+        )}
+      </div>
     </div>
   );
 }
 
-export default function Scoreboard({ team1, team2 }: ScoreboardProps) {
+export default function Scoreboard({ team1, team2, playerTeam }: ScoreboardProps) {
+  // A spectator can see both scores. A player can only see their own.
+  const isSpectator = playerTeam === null;
+
   return (
     <Card className="w-full overflow-hidden">
       <CardContent className="p-2 md:p-4">
         <div className="flex items-center justify-around gap-2 md:gap-4">
-          <TeamDisplay team={team1} />
+          <TeamDisplay team={team1} isOpponent={!isSpectator && playerTeam === 'team2'} />
           <div className="shrink-0 text-primary p-2 bg-primary/10 rounded-full">
             <Swords className="h-8 w-8" />
           </div>
-          <TeamDisplay team={team2} />
+          <TeamDisplay team={team2} isOpponent={!isSpectator && playerTeam === 'team1'} />
         </div>
       </CardContent>
     </Card>

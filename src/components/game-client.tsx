@@ -30,14 +30,20 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const searchParams = useSearchParams();
 
   const loadGameFromStorage = useCallback(() => {
-    const gameJSON = localStorage.getItem(`game-${gameId}`);
-    if (gameJSON) {
-      setGame(JSON.parse(gameJSON));
-    } else {
-      setError('Game not found in local storage. It might have been deleted or never created on this device.');
-      setGame(null);
+    try {
+      const gameJSON = localStorage.getItem(`game-${gameId}`);
+      if (gameJSON) {
+        setGame(JSON.parse(gameJSON));
+      } else {
+        setError('Game not found in local storage. It might have been deleted or never created on this device.');
+        setGame(null);
+      }
+    } catch (e) {
+      setError("Failed to load game data. It might be corrupted.");
+      console.error(e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [gameId]);
 
 
@@ -87,7 +93,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     return (
       <div className="flex flex-col items-center gap-4 text-lg">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        Loading game from local storage...
+        Loading game...
       </div>
     );
   }
@@ -99,8 +105,17 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   if (!game) {
     return <Card className="w-full max-w-md"><CardHeader><CardTitle>Game not found</CardTitle></CardHeader></Card>;
   }
+  
+  const currentRound = game.rounds[game.currentRoundIndex];
+  
+  const getWinner = () => {
+    if (!game.team1 || !game.team2) return null;
+    if (game.team1.score > game.team2.score) return game.team1;
+    if (game.team2.score > game.team1.score) return game.team2;
+    return null; // Draw
+  }
 
-  const winner = game.winner ? game[game.winner] : null;
+  const winner = getWinner();
 
   if (game.status === 'finished') {
     return (
@@ -112,7 +127,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           <CardTitle className="text-4xl font-headline">Game Over!</CardTitle>
           {winner ? (
             <CardDescription className="text-xl">
-              <span className='font-bold text-primary'>{winner.name}</span> wins with {winner.score} points!
+              <span className='font-bold text-primary'>{winner.name}</span> wins!
             </CardDescription>
           ) : (
             <CardDescription className="text-xl">It's a draw!</CardDescription>
@@ -161,13 +176,18 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
+  if (!currentRound) {
+     return <Card className="w-full max-w-md"><CardHeader><CardTitle>Error</CardTitle></CardHeader><CardContent>Current round data is missing.</CardContent></Card>;
+  }
+
   return (
     <div className="w-full max-w-6xl mx-auto space-y-4">
-      <div className="text-center p-2 bg-muted text-muted-foreground rounded-md">
-        Game Code: <strong className="font-mono">{game.id}</strong>
+      <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
+        <span>Game Code: <strong className="font-mono">{game.id}</strong></span>
+        <span>Round: <strong className="font-mono">{game.currentRoundIndex + 1} / {game.rounds.length}</strong></span>
       </div>
-      <Scoreboard team1={game.team1} team2={game.team2} />
-      <GameArea game={game} playerTeam={playerTeam} />
+      <Scoreboard team1={game.team1} team2={game.team2} playerTeam={playerTeam} />
+      <GameArea game={game} currentRound={currentRound} playerTeam={playerTeam} />
     </div>
   );
 }

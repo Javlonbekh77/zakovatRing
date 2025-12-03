@@ -1,6 +1,6 @@
 'use client';
 
-import { Game } from '@/lib/types';
+import { Game, Round } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import AnswerGrid from './answer-grid';
 import { useForm } from 'react-hook-form';
@@ -16,6 +16,7 @@ import { Badge } from './ui/badge';
 
 interface GameAreaProps {
   game: Game;
+  currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
 }
 
@@ -23,9 +24,9 @@ const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-export default function GameArea({ game, playerTeam }: GameAreaProps) {
+export default function GameArea({ game, currentRound, playerTeam }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [points, setPoints] = useState(game.currentPoints);
+  const [points, setPoints] = useState(currentRound.currentPoints);
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof answerSchema>>({
@@ -35,36 +36,35 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
     },
   });
 
+  // Effect for points countdown
   useEffect(() => {
-    if (game.status !== 'in_progress') return;
-
-    // Persist points reduction in local storage for one client to manage
-    const gameJSON = localStorage.getItem(`game-${game.id}`);
-    if (!gameJSON) return;
-    const currentGame: Game = JSON.parse(gameJSON);
+    if (currentRound.status !== 'in_progress') return;
 
     const interval = setInterval(() => {
         const gameDataStr = localStorage.getItem(`game-${game.id}`);
         if(gameDataStr) {
-            const gameData: Game = JSON.parse(gameDataStr);
-            if(gameData.status !== 'in_progress') {
+            const currentGame: Game = JSON.parse(gameDataStr);
+            const currentRoundInStorage = currentGame.rounds[currentGame.currentRoundIndex];
+            
+            if(currentRoundInStorage.status !== 'in_progress') {
                 clearInterval(interval);
                 return;
             }
-            const newPoints = Math.max(0, gameData.currentPoints - 1);
-            gameData.currentPoints = newPoints;
-            localStorage.setItem(`game-${game.id}`, JSON.stringify(gameData));
+
+            const newPoints = Math.max(0, currentRoundInStorage.currentPoints - 1);
+            currentGame.rounds[currentGame.currentRoundIndex].currentPoints = newPoints;
+            localStorage.setItem(`game-${game.id}`, JSON.stringify(currentGame));
         }
     }, 1000); // Decrease 1 point every second
 
     return () => clearInterval(interval);
-  }, [game.id, game.status]);
+  }, [game.id, game.currentRoundIndex, currentRound.status]);
 
 
   // Effect to update local component state for UI from game state
    useEffect(() => {
-    setPoints(game.currentPoints);
-  }, [game.currentPoints]);
+    setPoints(currentRound.currentPoints);
+  }, [currentRound.currentPoints]);
 
 
   const handleAnswerSubmit = async (values: z.infer<typeof answerSchema>) => {
@@ -77,44 +77,51 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
     try {
       const gameJSON = localStorage.getItem(`game-${game.id}`);
       if (!gameJSON) throw new Error("Game data not found in storage.");
-      const currentGame: Game = JSON.parse(gameJSON);
+      let currentGame: Game = JSON.parse(gameJSON);
+      let round = currentGame.rounds[currentGame.currentRoundIndex];
       
-      // Ensure game is still in progress
-      if (currentGame.status !== 'in_progress') {
-        toast({ title: "Game Over", description: "This game has already finished." });
+      if (round.status !== 'in_progress') {
+        toast({ title: "Round Over", description: "This round has already finished." });
         setIsSubmitting(false);
         return;
       }
 
-      const isCorrect = currentGame.mainAnswer.toLowerCase() === values.answer.toLowerCase();
-      let updatedGame: Game;
+      const isCorrect = round.mainAnswer.toLowerCase() === values.answer.toLowerCase();
 
       if (isCorrect) {
-          const currentTeamState = currentGame[playerTeam];
-          if (!currentTeamState) throw new Error("Team data is missing");
+          const team = currentGame[playerTeam];
+          if (!team) throw new Error("Team data is missing");
+
+          // Update round status
+          round.status = 'finished';
+          round.winner = playerTeam;
           
-          updatedGame = {
-              ...currentGame,
-              status: 'finished',
-              winner: playerTeam,
-              [playerTeam]: { ...currentTeamState, score: currentTeamState.score + currentGame.currentPoints },
-              lastActivityAt: new Date().toISOString(),
-          };
-           toast({
-            title: 'You got it!',
-            description: `Your team wins the round and gets ${currentGame.currentPoints} points.`,
+          // Update team's total score
+          team.score += round.currentPoints;
+
+          toast({
+            title: `Correct! Round ${currentGame.currentRoundIndex + 1} finished.`,
+            description: `Your team gets ${round.currentPoints} points.`,
           });
+
+          // Check if there is a next round
+          if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
+              currentGame.currentRoundIndex += 1;
+              currentGame.rounds[currentGame.currentRoundIndex].status = 'in_progress';
+          } else {
+              // This was the last round, finish the game
+              currentGame.status = 'finished';
+          }
       } else {
-          // No turn change, just a toast notification for the submitting team.
-          updatedGame = currentGame;
           toast({
             variant: 'destructive',
             title: 'Incorrect Answer',
             description: 'That was not the correct answer. Keep trying!',
           });
       }
-
-      localStorage.setItem(`game-${game.id}`, JSON.stringify(updatedGame));
+      
+      currentGame.lastActivityAt = new Date().toISOString();
+      localStorage.setItem(`game-${game.id}`, JSON.stringify(currentGame));
       form.reset();
 
     } catch (error) {
@@ -144,7 +151,7 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
             </CardHeader>
             <CardContent>
             <p className="text-lg md:text-xl leading-relaxed">
-                {game.mainQuestion}
+                {currentRound.mainQuestion}
             </p>
             </CardContent>
         </Card>
@@ -168,9 +175,9 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
                         </FormItem>
                     )}
                     />
-                    <Button type="submit" disabled={isSubmitting} className='w-full'>
-                    {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
-                    Submit Final Answer
+                    <Button type="submit" disabled={isSubmitting || currentRound.status !== 'in_progress'} className='w-full'>
+                        {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
+                        Submit Final Answer
                     </Button>
                 </form>
                 </Form>
@@ -182,7 +189,7 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
         </div>
         <Card className="lg:col-span-3">
             <CardContent className="p-6">
-                <AnswerGrid game={game} playerTeam={playerTeam} />
+                <AnswerGrid game={game} currentRound={currentRound} playerTeam={playerTeam} />
             </CardContent>
         </Card>
     </div>

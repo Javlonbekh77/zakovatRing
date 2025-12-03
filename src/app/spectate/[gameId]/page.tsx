@@ -1,11 +1,16 @@
+'use client';
+
 import GameClient from '@/components/game-client';
+import { useParams } from 'next/navigation';
 import { Suspense } from 'react';
 
-export default function SpectatePage({
-  params: { gameId },
-}: {
-  params: { gameId: string };
-}) {
+export default function SpectatePage() {
+  const params = useParams();
+  const gameId = Array.isArray(params.gameId) ? params.gameId[0] : params.gameId;
+
+  if (!gameId) {
+      return <div>Loading...</div>
+  }
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">

@@ -1,6 +1,6 @@
 'use client';
 
-import { Game } from '@/lib/types';
+import { Game, Round } from '@/lib/types';
 import * as z from 'zod';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { useState } from 'react';
@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 
 interface AnswerGridProps {
   game: Game;
+  currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
 }
 
@@ -24,11 +25,11 @@ const letterAnswerSchema = z.object({
 // Cost to reveal a letter
 const LETTER_REVEAL_COST = 5;
 
-function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game; playerTeam: 'team1' | 'team2' | null }) {
+function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const letterQuestion = game.letterQuestions[letter.toUpperCase()];
+  const letterQuestion = currentRound.letterQuestions[letter.toUpperCase()];
 
   const form = useForm<z.infer<typeof letterAnswerSchema>>({
     resolver: zodResolver(letterAnswerSchema),
@@ -47,37 +48,35 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
     try {
         const gameJSON = localStorage.getItem(`game-${game.id}`);
         if (!gameJSON) throw new Error("Game data not found in storage.");
-        const currentGame: Game = JSON.parse(gameJSON);
+        let currentGame: Game = JSON.parse(gameJSON);
+        const round = currentGame.rounds[currentGame.currentRoundIndex];
+        const team = currentGame[playerTeam];
+
+        if (!round) throw new Error("Current round data not found.");
+        if (!team) throw new Error("Your team data was not found.");
 
         const isCorrect = letterQuestion.answer.toLowerCase() === values.answer.toLowerCase();
-        let updatedGame: Game;
 
         if (isCorrect) {
-            const team = currentGame[playerTeam];
-            if (!team) throw new Error("Your team data was not found.");
+            const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
+            
+            // Add letter to team's specific revealed letters for this round
+            if (!round[revealedLettersKey].includes(letter.toUpperCase())) {
+                round[revealedLettersKey].push(letter.toUpperCase());
+                team.score -= LETTER_REVEAL_COST; // Deduct points
+                toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! It cost ${LETTER_REVEAL_COST} points.`});
+            } else {
+                toast({ title: "Already Revealed", description: `You have already revealed this letter.`});
+            }
 
-            // Add letter to team's specific revealed letters and deduct points
-            const updatedTeam = {
-                ...team,
-                revealedLetters: [...team.revealedLetters, letter.toUpperCase()],
-                score: team.score - LETTER_REVEAL_COST,
-            };
+            currentGame.lastActivityAt = new Date().toISOString();
+            localStorage.setItem(`game-${game.id}`, JSON.stringify(currentGame));
+            setOpen(false);
 
-            updatedGame = {
-                ...currentGame,
-                [playerTeam]: updatedTeam,
-                lastActivityAt: new Date().toISOString(),
-            };
-            toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! It cost ${LETTER_REVEAL_COST} points.`});
         } else {
-            // No changes to game state on incorrect answer, just a notification
-            updatedGame = currentGame;
             toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. Try again." });
         }
         
-        localStorage.setItem(`game-${game.id}`, JSON.stringify(updatedGame));
-        setOpen(false);
-
     } catch(e) {
       if (e instanceof Error) {
         toast({ variant: 'destructive', title: 'Error', description: e.message });
@@ -91,7 +90,7 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button disabled={!playerTeam} className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Reveal letter ${letter}`}>
+        <button disabled={!playerTeam || currentRound.status !== 'in_progress'} className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Reveal letter ${letter}`}>
           ?
         </button>
       </DialogTrigger>
@@ -127,12 +126,12 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
   );
 }
 
-export default function AnswerGrid({ game, playerTeam }: AnswerGridProps) {
-  const answerChars = game.mainAnswer.split('');
+export default function AnswerGrid({ game, currentRound, playerTeam }: AnswerGridProps) {
+  const answerChars = currentRound.mainAnswer.split('');
   
-  // Determine which set of revealed letters to use
-  const revealedLetters = playerTeam && game[playerTeam] 
-    ? game[playerTeam]!.revealedLetters 
+  // Determine which set of revealed letters to use based on the player's team
+  const revealedLetters = playerTeam 
+    ? (playerTeam === 'team1' ? currentRound.team1RevealedLetters : currentRound.team2RevealedLetters)
     : [];
 
   return (
@@ -151,7 +150,7 @@ export default function AnswerGrid({ game, playerTeam }: AnswerGridProps) {
                 {char.toUpperCase()}
               </div>
             ) : (
-              <LetterDialog letter={char} game={game} playerTeam={playerTeam} />
+              <LetterDialog letter={char} game={game} currentRound={currentRound} playerTeam={playerTeam} />
             )}
           </div>
         );
