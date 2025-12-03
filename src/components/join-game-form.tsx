@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { joinGame } from '@/app/join/actions';
 import { Loader2, LogIn } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
 
 const formSchema = z.object({
   gameCode: z
@@ -32,6 +33,7 @@ const formSchema = z.object({
 export default function JoinGameForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -44,7 +46,15 @@ export default function JoinGameForm() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
     try {
-      await joinGame(values.gameCode.toUpperCase(), values.teamName);
+      const result = await joinGame(values.gameCode.toUpperCase(), values.teamName);
+      if (result?.error) {
+        toast({
+          variant: 'destructive',
+          title: 'Failed to Join Game',
+          description: result.error,
+        });
+      }
+      // The action handles redirection on success. If we are here, it's likely an error.
     } catch (error) {
       if (error instanceof Error) {
         toast({
@@ -94,7 +104,7 @@ export default function JoinGameForm() {
           )}
         />
         <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-          {isSubmitting ? <Loader2 className="animate-spin" /> : <LogIn />}
+          {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
           Join Game
         </Button>
       </form>

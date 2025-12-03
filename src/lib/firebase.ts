@@ -18,13 +18,14 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
 
-// It's a good practice to enable network for server-side operations
-// although Firestore tries to do this automatically.
-try {
+// In a server-side context (like Next.js Server Actions), we need to ensure
+// the network is enabled. In the browser, this happens automatically.
+if (typeof window === 'undefined') {
+  try {
     enableNetwork(db);
-} catch (e) {
-    console.log("Could not enable network, it might be already enabled.");
+  } catch (e) {
+    // This can throw if it's already enabled, which is fine.
+  }
 }
-
 
 export { app, db };
