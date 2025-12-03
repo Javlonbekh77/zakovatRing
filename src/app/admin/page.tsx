@@ -1,4 +1,4 @@
-import CreateGameForm from '@/components/create-game-form';
+import CreateSampleGameButton from '@/components/create-sample-game-button';
 import {
   Card,
   CardContent,
@@ -21,11 +21,11 @@ export default function AdminPage() {
               Create New Game
             </CardTitle>
             <CardDescription>
-              Fill out the details below to set up a new round of Zakovat Ring.
+              Click the button below to generate a sample game.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <CreateGameForm />
+            <CreateSampleGameButton />
           </CardContent>
         </Card>
       </div>
