@@ -26,6 +26,7 @@ import { useEffect, useState } from 'react';
 import { createGame } from '@/app/admin/actions';
 import { Loader2, Send } from 'lucide-react';
 import { Separator } from './ui/separator';
+import { useToast } from '@/hooks/use-toast';
 
 const formSchema = z.object({
   mainQuestion: z.string().min(10, 'Question must be at least 10 characters.'),
@@ -41,6 +42,7 @@ const formSchema = z.object({
 
 export default function CreateGameForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -59,7 +61,7 @@ export default function CreateGameForm() {
   const mainAnswer = form.watch('mainAnswer');
 
   useEffect(() => {
-    const uniqueLetters = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))];
+    const uniqueLetters = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))].sort();
     
     const currentFields = form.getValues('letterQuestions');
     const newFields = uniqueLetters.map(letter => {
@@ -67,21 +69,28 @@ export default function CreateGameForm() {
       return existingField || { letter, question: '', answer: '' };
     });
 
-    if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
+    // Only replace if the fields have actually changed
+    if (JSON.stringify(newFields.map(f => f.letter)) !== JSON.stringify(fields.map(f => f.letter))) {
       replace(newFields);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainAnswer, form, replace]);
+  }, [mainAnswer]);
 
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
     try {
       await createGame(values);
+      // On success, the action redirects.
     } catch (error) {
-      // In case of an error not leading to a redirect, re-enable the button
+      if (error instanceof Error) {
+        toast({
+          variant: 'destructive',
+          title: 'Error Creating Game',
+          description: error.message,
+        });
+      }
       setIsSubmitting(false);
-      console.error(error);
     }
   }
 
