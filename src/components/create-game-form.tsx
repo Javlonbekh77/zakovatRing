@@ -42,6 +42,8 @@ const formSchema = z.object({
 
 export default function CreateGameForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -73,8 +75,14 @@ export default function CreateGameForm() {
   }, 500);
 
   useEffect(() => {
-    debouncedUpdateLetterFields(mainAnswer);
-  }, [mainAnswer, debouncedUpdateLetterFields]);
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isMounted) {
+      debouncedUpdateLetterFields(mainAnswer);
+    }
+  }, [mainAnswer, debouncedUpdateLetterFields, isMounted]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
@@ -118,7 +126,7 @@ export default function CreateGameForm() {
           )}
         />
 
-        {fields.length > 0 && (
+        {isMounted && fields.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Letter-Reveal Questions</CardTitle>
