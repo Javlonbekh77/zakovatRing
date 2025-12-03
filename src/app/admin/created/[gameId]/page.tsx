@@ -15,12 +15,13 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 export default function GameCreatedPage({
-  params: { gameId },
+  params,
 }: {
   params: { gameId: string };
 }) {
   const { toast } = useToast();
   const [joinUrl, setJoinUrl] = useState('');
+  const { gameId } = params;
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
