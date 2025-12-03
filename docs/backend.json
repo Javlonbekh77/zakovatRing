@@ -1,0 +1,226 @@
+{
+  "entities": {
+    "Game": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Game",
+      "type": "object",
+      "description": "Represents a single game instance in the Zakovat Ring application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Game entity."
+        },
+        "gameCode": {
+          "type": "string",
+          "description": "Unique code for players to join the game."
+        },
+        "currentQuestionId": {
+          "type": "string",
+          "description": "Reference to the currently active Question. (Relationship: Game 1:1 Question)"
+        },
+        "totalPoints": {
+          "type": "number",
+          "description": "The total points available at the start of the game."
+        },
+        "pointsDeductionRate": {
+          "type": "number",
+          "description": "The rate at which points are deducted per minute."
+        },
+        "letterRevealInterval": {
+          "type": "number",
+          "description": "The interval (in minutes) at which letters are automatically revealed."
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Timestamp indicating when the game started.",
+          "format": "date-time"
+        },
+        "team1Id": {
+          "type": "string",
+          "description": "Reference to Team1 in the game. (Relationship: Game 1:1 Team)"
+        },
+        "team2Id": {
+          "type": "string",
+          "description": "Reference to Team2 in the game. (Relationship: Game 1:1 Team)"
+        }
+      },
+      "required": [
+        "id",
+        "gameCode",
+        "currentQuestionId",
+        "totalPoints",
+        "pointsDeductionRate",
+        "letterRevealInterval",
+        "startTime",
+        "team1Id",
+        "team2Id"
+      ]
+    },
+    "Question": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Question",
+      "type": "object",
+      "description": "Represents a question with its answer and related information.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Question entity."
+        },
+        "questionText": {
+          "type": "string",
+          "description": "The text of the question."
+        },
+        "answer": {
+          "type": "string",
+          "description": "The correct answer to the question."
+        },
+        "letterRevealQuestions": {
+          "type": "array",
+          "description": "References to LetterRevealQuestions associated with this question.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "questionText",
+        "answer"
+      ]
+    },
+    "Team": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Team",
+      "type": "object",
+      "description": "Represents a team participating in a game.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Team entity."
+        },
+        "teamName": {
+          "type": "string",
+          "description": "The name of the team."
+        },
+        "score": {
+          "type": "number",
+          "description": "The team's current score."
+        }
+      },
+      "required": [
+        "id",
+        "teamName",
+        "score"
+      ]
+    },
+    "LetterRevealQuestion": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "LetterRevealQuestion",
+      "type": "object",
+      "description": "Represents a question that reveals a letter in the answer grid.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the LetterRevealQuestion entity."
+        },
+        "questionId": {
+          "type": "string",
+          "description": "Reference to the parent question. (Relationship: Question 1:N LetterRevealQuestion)"
+        },
+        "letterRevealQuestionText": {
+          "type": "string",
+          "description": "The text of the letter reveal question."
+        },
+        "revealedLetterIndex": {
+          "type": "number",
+          "description": "The index of the letter to reveal in the answer."
+        }
+      },
+      "required": [
+        "id",
+        "questionId",
+        "letterRevealQuestionText",
+        "revealedLetterIndex"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/games/{gameId}",
+        "definition": {
+          "entityName": "Game",
+          "schema": {
+            "$ref": "#/backend/entities/Game"
+          },
+          "description": "Stores the game information.  The 'gameId' is the unique ID of the game.",
+          "params": [
+            {
+              "name": "gameId",
+              "description": "The unique ID of the game."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/questions/{questionId}",
+        "definition": {
+          "entityName": "Question",
+          "schema": {
+            "$ref": "#/backend/entities/Question"
+          },
+          "description": "Stores questions to be used in games. The 'questionId' is the unique ID of the question.",
+          "params": [
+            {
+              "name": "questionId",
+              "description": "The unique ID of the question."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/teams/{teamId}",
+        "definition": {
+          "entityName": "Team",
+          "schema": {
+            "$ref": "#/backend/entities/Team"
+          },
+          "description": "Stores team data. 'teamId' is the unique ID of the team.",
+          "params": [
+            {
+              "name": "teamId",
+              "description": "The unique ID of the team."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/games/{gameId}/letter_reveal_questions/{letterRevealQuestionId}",
+        "definition": {
+          "entityName": "LetterRevealQuestion",
+          "schema": {
+            "$ref": "#/backend/entities/LetterRevealQuestion"
+          },
+          "description": "Stores letter reveal questions associated with a specific game. Includes denormalized 'gameId' for authorization independence.",
+          "params": [
+            {
+              "name": "gameId",
+              "description": "The unique ID of the game."
+            },
+            {
+              "name": "letterRevealQuestionId",
+              "description": "The unique ID of the letter reveal question."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to support the Zakovat Ring game, prioritizing authorization independence, clarity, and scalability. It segregates data based on access patterns and denormalizes authorization data to avoid complex security rules and `get()` calls. The admin will be able to create and manage questions, while teams will be able to join games and answer questions.\n\n*   `/games`: Contains the main game documents. Access control is limited to admins for creation and modification.\n*   `/questions`: Stores question data.  Admins have full control. Normal users can only read for a specific game they are participating in.\n*   `/teams`: Holds team information.  Teams are created and updated within the context of a game.\n*   `/games/{gameId}/letter_reveal_questions`: Stores letter reveal questions for a particular game. This is a subcollection to scope questions to a game. Denormalizes the `gameId` for security rules and to efficiently retrieve questions for a particular game.\n\n**Authorization Independence:**\n\n*   The `letter_reveal_questions` subcollection denormalizes the `gameId`. This allows rules to authorize access based solely on the document's content, without needing to `get()` the parent `game` document.\n\n**QAPs (Rules are not Filters):**\n\n*   Structural Segregation: Data with different access requirements (e.g., public game data vs. admin-only question creation) are stored in separate collections.\n*   The letter_reveal_questions subcollection is used in order to scope the questions to a game, without needing to read all questions when a user is playing a game."
+  }
+}

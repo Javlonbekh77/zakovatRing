@@ -1,0 +1,102 @@
+/**
+ * Core Philosophy: This ruleset establishes a "read-only" public access model for the Zakovat Ring game data as a secure default.
+ * Due to the current data structure lacking specific ownership or role fields (e.g., 'creatorId', 'adminId', 'participantIds'),
+ * all write operations (create, update, delete) are disabled across the board to prevent unauthorized data modification.
+ * The primary goal is to allow public viewing of games, questions, and teams while awaiting schema updates to enable a proper administrative and participant-based security model.
+ *
+ * Data Structure:
+ * - /games/{gameId}: Top-level collection for game state.
+ * - /questions/{questionId}: Top-level collection for all game questions.
+ * - /teams/{teamId}: Top-level collection for team information.
+ * - /games/{gameId}/letter_reveal_questions/{letterRevealQuestionId}: Subcollection for questions specific to a game instance.
+ *
+ * Key Security Decisions:
+ * - Secure by Default: All write operations are explicitly disabled (`if false;`) because the current schemas for 'Game', 'Question', and 'Team' are missing the necessary fields to verify ownership or administrative roles, as described in the application requirements.
+ * - Public Read Access: Core game data in `/games`, `/questions`, and `/teams` is publicly readable to allow spectators or potential players to view information.
+ * - Authenticated Read for Subcollections: Access to game-specific subcollections like `/letter_reveal_questions` is restricted to signed-in users as a baseline security measure.
+ *
+ * Denormalization for Authorization:
+ * - The proposed structure correctly uses a `/games/{gameId}/letter_reveal_questions` subcollection, which is a good pattern.
+ * - CRITICAL: For these rules to be expanded, denormalization is required. For example, a `participantIds` array should be added to the `/games/{gameId}` document to allow rules to grant access to players in that specific game. Similarly, an `ownerId` or `adminId` field is needed on `/games` and `/questions` to enable administrative control.
+ *
+ * Structural Segregation:
+ * - The data is well-segregated into logical top-level collections, which simplifies rule management and queries.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper Functions
+    /**
+     * Checks if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * @description Rule for the 'games' collection. Allows public read access but disables all writes.
+     * @path /games/{gameId}
+     * @allow An unauthenticated user can read a specific game document. (get)
+     * @deny An authenticated user attempts to create a new game document. (create)
+     * @principle A secure-by-default approach. Writes are disabled until an ownership or admin field is added to the 'Game' entity to enable proper authorization.
+     */
+    match /games/{gameId} {
+      allow get: if true;
+      allow list: if true;
+      // CRITICAL: Cannot implement owner-only or admin-only writes. The 'Game' entity is missing an 'ownerId', 'adminId', or similar field for authorization.
+      allow create: if false; // TODO: Add owner/admin validation once the schema is updated.
+      allow update: if false; // TODO: Add owner/admin validation once the schema is updated.
+      allow delete: if false; // TODO: Add owner/admin validation once the schema is updated.
+    }
+
+    /**
+     * @description Rule for the 'questions' collection. Allows public read access but disables all writes.
+     * @path /questions/{questionId}
+     * @allow Anyone, including anonymous users, can list all questions. (list)
+     * @deny An authenticated user attempts to update an existing question. (update)
+     * @principle A secure-by-default approach. Writes are disabled until an ownership or admin field is added to the 'Question' entity to enable proper authorization.
+     */
+    match /questions/{questionId} {
+      allow get: if true;
+      allow list: if true;
+      // CRITICAL: Cannot implement owner-only or admin-only writes. The 'Question' entity is missing an 'ownerId', 'adminId', or similar field for authorization.
+      allow create: if false; // TODO: Add owner/admin validation once the schema is updated.
+      allow update: if false; // TODO: Add owner/admin validation once the schema is updated.
+      allow delete: if false; // TODO: Add owner/admin validation once the schema is updated.
+    }
+
+    /**
+     * @description Rule for the 'teams' collection. Allows public read access but disables all writes.
+     * @path /teams/{teamId}
+     * @allow Any user can read a team's data. (get)
+     * @deny Any user, even if authenticated, attempts to delete a team. (delete)
+     * @principle A secure-by-default approach. Writes are disabled until a field linking a team to a game or owner is added to the 'Team' entity to enable proper authorization.
+     */
+    match /teams/{teamId} {
+      allow get: if true;
+      allow list: if true;
+      // CRITICAL: Cannot implement context-aware writes (e.g., by a game admin). The 'Team' entity is missing a field like 'gameId' or 'ownerId' for authorization.
+      allow create: if false; // TODO: Add validation once the schema is updated.
+      allow update: if false; // TODO: Add validation once the schema is updated.
+      allow delete: if false; // TODO: Add validation once the schema is updated.
+    }
+
+    /**
+     * @description Rule for the 'letter_reveal_questions' subcollection. Allows read access for any signed-in user but disables all writes.
+     * @path /games/{gameId}/letter_reveal_questions/{letterRevealQuestionId}
+     * @allow A signed-in user can read a letter reveal question for a game. (get)
+     * @deny An unauthenticated user attempts to list the letter reveal questions. (list)
+     * @deny A signed-in user attempts to create a new letter reveal question. (create)
+     * @principle Restricts access to authenticated users as a baseline. Writes are disabled because there is no way to verify if a user is a legitimate participant in the parent game.
+     */
+    match /games/{gameId}/letter_reveal_questions/{letterRevealQuestionId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      // CRITICAL: Cannot implement participant-only writes. The parent 'Game' document is missing a 'participantIds' list or map to check against request.auth.uid.
+      allow create: if false; // TODO: Add participant validation by checking the parent game document.
+      allow update: if false; // TODO: Add participant validation by checking the parent game document.
+      allow delete: if false; // TODO: Add participant validation by checking the parent game document.
+    }
+  }
+}
