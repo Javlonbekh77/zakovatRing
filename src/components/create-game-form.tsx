@@ -70,9 +70,9 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
 
     useEffect(() => {
         const uniqueLetters = [...new Set((mainAnswer || '').replace(/\s/g, '').split(''))];
-        const existingLetterData: Record<string, { question: string; answer: string }> = fields.reduce((acc, field: any) => {
+        const existingLetterData: Record<string, { question: string; answer: string }> = (fields as any[]).reduce((acc, field) => {
             if (field && typeof field === 'object' && 'letter' in field) {
-                acc[field.letter] = { question: field.question || '', answer: field.answer || '' };
+                acc[(field as any).letter] = { question: (field as any).question || '', answer: (field as any).answer || '' };
             }
             return acc;
         }, {} as Record<string, { question: string; answer: string }>);
@@ -84,6 +84,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
         }));
 
         replace(newFields);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mainAnswer, replace]);
 
     return (
@@ -138,9 +139,14 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
 
 export default function CreateGameForm() {
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isClient, setIsClient] = useState(false);
     const { toast } = useToast();
     const router = useRouter();
     const firestore = useFirestore();
+
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -224,6 +230,15 @@ export default function CreateGameForm() {
         } finally {
             setIsSubmitting(false);
         }
+    }
+
+    if (!isClient) {
+        return (
+            <div className="space-y-8">
+                <div className="w-full h-24 rounded-lg bg-muted animate-pulse"></div>
+                <div className="w-full h-12 rounded-lg bg-muted animate-pulse"></div>
+            </div>
+        );
     }
 
     return (
