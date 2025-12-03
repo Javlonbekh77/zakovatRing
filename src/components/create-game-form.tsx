@@ -70,8 +70,10 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
 
     useEffect(() => {
         const uniqueLetters = [...new Set((mainAnswer || '').replace(/\s/g, '').split(''))];
-        const existingLetterData = fields.reduce((acc, field: any) => {
-            acc[field.letter] = { question: field.question, answer: field.answer };
+        const existingLetterData: Record<string, { question: string; answer: string }> = fields.reduce((acc, field: any) => {
+            if (field && typeof field === 'object' && 'letter' in field) {
+                acc[field.letter] = { question: field.question || '', answer: field.answer || '' };
+            }
             return acc;
         }, {} as Record<string, { question: string; answer: string }>);
 
@@ -229,25 +231,23 @@ export default function CreateGameForm() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
                 <Accordion type="multiple" defaultValue={['item-0']} className="w-full">
                     {fields.map((field, index) => (
-                        <AccordionItem value={`item-${index}`} key={field.id}>
-                            <AccordionTrigger>
-                                <div className="flex justify-between items-center w-full pr-4">
+                         <AccordionItem value={`item-${index}`} key={field.id}>
+                            <div className="flex items-center w-full">
+                                <AccordionTrigger className="flex-1">
                                     <span className='font-bold text-lg'>Round {index + 1}</span>
-                                    {fields.length > 1 && (
-                                        <Button
-                                            type="button"
-                                            variant="destructive"
-                                            size="icon"
-                                            onClick={(e) => {
-                                                e.stopPropagation(); // prevent accordion from toggling
-                                                remove(index);
-                                            }}
-                                        >
-                                            <Trash className="h-4 w-4" />
-                                        </Button>
-                                    )}
-                                </div>
-                            </AccordionTrigger>
+                                </AccordionTrigger>
+                                {fields.length > 1 && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="ml-2 text-destructive hover:bg-destructive/10"
+                                        onClick={() => remove(index)}
+                                    >
+                                        <Trash className="h-4 w-4" />
+                                    </Button>
+                                )}
+                            </div>
                             <AccordionContent className="space-y-6 pt-4">
                                 <FormField
                                     control={form.control}
