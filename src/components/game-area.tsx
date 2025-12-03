@@ -14,7 +14,7 @@ import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
-import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 
 interface GameAreaProps {
@@ -31,65 +31,13 @@ const INCORRECT_ANSWER_PENALTY = 5;
 
 export default function GameArea({ game, currentRound, playerTeam }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [points, setPoints] = useState(currentRound.currentPoints);
   const { toast } = useToast();
   const firestore = useFirestore();
 
-  // Effect for points countdown
-  useEffect(() => {
-    if (typeof window === 'undefined' || currentRound.status !== 'in_progress' || !firestore) return;
-
-    const interval = setInterval(async () => {
-        const gameDocRef = doc(firestore, 'games', game.id);
-        try {
-            await runTransaction(firestore, async (transaction) => {
-                const gameSnap = await transaction.get(gameDocRef);
-                if (!gameSnap.exists()) throw "Game not found!";
-
-                const currentGame = gameSnap.data() as Game;
-                const roundInDB = currentGame.rounds[currentGame.currentRoundIndex];
-
-                if (roundInDB.status !== 'in_progress') {
-                    clearInterval(interval);
-                    return;
-                }
-
-                const newPoints = Math.max(0, roundInDB.currentPoints - 1);
-                
-                const updateData: any = {
-                    [`rounds.${currentGame.currentRoundIndex}.currentPoints`]: newPoints,
-                    lastActivityAt: serverTimestamp()
-                };
-
-                if (newPoints === 0) {
-                    updateData[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
-                    updateData[`rounds.${currentGame.currentRoundIndex}.winner`] = null;
-
-                    if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
-                        updateData.currentRoundIndex = currentGame.currentRoundIndex + 1;
-                        updateData[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
-                    } else {
-                        updateData.status = 'finished';
-                    }
-                }
-                
-                transaction.update(gameDocRef, updateData);
-            });
-        } catch (error) {
-            console.error("Points countdown transaction failed: ", error);
-            clearInterval(interval);
-        }
-    }, 1000); 
-
-    return () => clearInterval(interval);
-  }, [firestore, game.id, game.currentRoundIndex, currentRound.status]);
-
-
-  // Effect to update local component state for UI from game state
-   useEffect(() => {
-    setPoints(currentRound.currentPoints);
-  }, [currentRound.currentPoints]);
-
+  const form = useForm<z.infer<typeof answerSchema>>({
+    resolver: zodResolver(answerSchema),
+    defaultValues: { answer: '' },
+  });
 
   const handleAnswerSubmit = async (values: z.infer<typeof answerSchema>) => {
     if (!playerTeam || !firestore) {
@@ -173,7 +121,7 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
                         </div>
                         <div className='text-right flex-shrink-0'>
                             <Badge variant="default" className="text-lg font-mono font-bold shadow-md">
-                            {points} Points
+                            {currentRound.currentPoints} Points
                             </Badge>
                              <p className='text-xs text-muted-foreground mt-1'>Available</p>
                         </div>
