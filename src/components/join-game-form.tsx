@@ -14,7 +14,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
-import { joinGameLocal } from '@/app/join/actions';
 import { Loader2, LogIn } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Game } from '@/lib/types';
@@ -86,12 +85,25 @@ export default function JoinGameForm() {
         setIsSubmitting(false);
         return;
       }
+      
+      if ( (teamSlot === 'team1' && game.team1) || (teamSlot === 'team2' && game.team2) ) {
+        toast({
+          variant: 'destructive',
+          title: 'Game Full',
+          description: 'This game already has two teams.',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
 
       // Update game state locally before redirect
-      const updatedGame = { ...game };
+      const updatedGame: Game = { ...game };
       updatedGame[teamSlot] = { name: values.teamName, score: 0 };
       updatedGame.lastActivityAt = new Date().toISOString();
-      if (teamSlot === 'team2') {
+      
+      // Only start the game if the SECOND team is joining
+      if (teamSlot === 'team2' && updatedGame.team1) {
           updatedGame.status = 'in_progress';
           updatedGame.gameStartedAt = new Date().toISOString();
           updatedGame.currentTurn = 'team1';

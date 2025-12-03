@@ -19,10 +19,10 @@ import { useSearchParams } from 'next/navigation';
 
 interface GameClientProps {
   gameId: string;
-  assignedTeam: 'team1' | 'team2' | undefined;
+  assignedTeam?: 'team1' | 'team2' | undefined;
 }
 
-export default function GameClient({ gameId }: GameClientProps) {
+export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const [game, setGame] = useState<Game | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +54,14 @@ export default function GameClient({ gameId }: GameClientProps) {
       console.error('Could not parse team info from localStorage', e);
     }
     
-    if (teamFromUrl) {
+    if (assignedTeam) {
+      setPlayerTeam(assignedTeam);
+       try {
+        localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: assignedTeam }));
+      } catch (e) {
+        console.error('Could not write team info to localStorage', e);
+      }
+    } else if (teamFromUrl) {
       setPlayerTeam(teamFromUrl);
       try {
         localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: teamFromUrl }));
@@ -65,7 +72,7 @@ export default function GameClient({ gameId }: GameClientProps) {
       setPlayerTeam(storedTeamInfo.team);
     }
 
-  }, [gameId, searchParams]);
+  }, [gameId, searchParams, assignedTeam]);
 
   useEffect(() => {
     loadGameFromStorage();
@@ -135,7 +142,7 @@ export default function GameClient({ gameId }: GameClientProps) {
             <Users className="h-12 w-12 text-primary" />
           </div>
           <CardTitle className="font-headline text-3xl">Game Lobby</CardTitle>
-          <CardDescription>Waiting for players to join...</CardDescription>
+          <CardDescription>Waiting for the second player to join...</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
             <div className='font-mono text-xl p-3 bg-muted rounded-md'>Game Code: <span className='font-bold tracking-widest'>{game.id}</span></div>
@@ -156,6 +163,9 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-4">
+      <div className="text-center p-2 bg-muted text-muted-foreground rounded-md">
+        Game Code: <strong className="font-mono">{game.id}</strong>
+      </div>
       <Scoreboard team1={game.team1} team2={game.team2} currentTurn={game.currentTurn} />
       <GameArea game={game} playerTeam={playerTeam} />
     </div>
