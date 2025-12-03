@@ -1,7 +1,6 @@
 'use client';
 
 import { Game } from '@/lib/types';
-import { cn } from '@/lib/utils';
 import * as z from 'zod';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { useState } from 'react';
@@ -11,7 +10,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Loader2, Send } from 'lucide-react';
-import { revealLetter } from '@/app/game/[gameId]/actions';
 import { useToast } from '@/hooks/use-toast';
 
 interface AnswerGridProps {
@@ -44,14 +42,33 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
     
     setIsSubmitting(true);
     try {
-        const result = await revealLetter(game.id, playerTeam, letter.toUpperCase(), values.answer);
-        if (result.correct) {
+        const gameJSON = localStorage.getItem(`game-${game.id}`);
+        if (!gameJSON) throw new Error("Game data not found in storage.");
+        const currentGame: Game = JSON.parse(gameJSON);
+
+        const isCorrect = letterQuestion.answer.toLowerCase() === values.answer.toLowerCase();
+        let updatedGame: Game;
+
+        if (isCorrect) {
+            updatedGame = {
+                ...currentGame,
+                revealedLetters: [...currentGame.revealedLetters, letter.toUpperCase()],
+                lastActivityAt: new Date().toISOString(),
+                // Turn does not change on correct letter answer
+            };
             toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' has been revealed.`});
-            setOpen(false);
         } else {
+            updatedGame = {
+                ...currentGame,
+                lastActivityAt: new Date().toISOString(),
+                currentTurn: playerTeam === 'team1' ? 'team2' : 'team1',
+            };
             toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. The turn passes to the other team." });
-            setOpen(false);
         }
+        
+        localStorage.setItem(`game-${game.id}`, JSON.stringify(updatedGame));
+        setOpen(false);
+
     } catch(e) {
       if (e instanceof Error) {
         toast({ variant: 'destructive', title: 'Error', description: e.message });

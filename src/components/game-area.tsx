@@ -3,7 +3,6 @@
 import { Game } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import AnswerGrid from './answer-grid';
-import { submitMainAnswer } from '@/app/game/[gameId]/actions';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -59,16 +58,38 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
 
     setIsSubmitting(true);
     try {
-      const result = await submitMainAnswer(game.id, playerTeam, values.answer, points);
-      if (!result.correct) {
-        toast({
-          variant: 'destructive',
-          title: 'Incorrect Answer',
-          description: 'That was not the correct answer. The turn passes to the other team.',
-        });
-        form.reset();
+      const gameJSON = localStorage.getItem(`game-${game.id}`);
+      if (!gameJSON) throw new Error("Game data not found in storage.");
+      const currentGame: Game = JSON.parse(gameJSON);
+
+      const isCorrect = currentGame.mainAnswer.toLowerCase() === values.answer.toLowerCase();
+      let updatedGame: Game;
+
+      if (isCorrect) {
+          const currentScore = currentGame[playerTeam]?.score || 0;
+          updatedGame = {
+              ...currentGame,
+              status: 'finished',
+              winner: playerTeam,
+              [`${playerTeam}`]: { ...currentGame[playerTeam]!, score: currentScore + points },
+              lastActivityAt: new Date().toISOString(),
+          };
+      } else {
+          updatedGame = {
+              ...currentGame,
+              currentTurn: playerTeam === 'team1' ? 'team2' : 'team1',
+              lastActivityAt: new Date().toISOString(),
+          };
+          toast({
+            variant: 'destructive',
+            title: 'Incorrect Answer',
+            description: 'That was not the correct answer. The turn passes to the other team.',
+          });
       }
-      // On correct answer, the page will reload to the 'finished' state.
+
+      localStorage.setItem(`game-${game.id}`, JSON.stringify(updatedGame));
+      form.reset();
+
     } catch (error) {
       if (error instanceof Error) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });

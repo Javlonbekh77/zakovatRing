@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import type { Game, Team } from '@/lib/types';
+import { useEffect, useState, useCallback } from 'react';
+import type { Game } from '@/lib/types';
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from './ui/card';
@@ -23,12 +22,24 @@ interface GameClientProps {
   assignedTeam: 'team1' | 'team2' | undefined;
 }
 
-export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
+export default function GameClient({ gameId }: GameClientProps) {
   const [game, setGame] = useState<Game | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const searchParams = useSearchParams();
+
+  const loadGameFromStorage = useCallback(() => {
+    const gameJSON = localStorage.getItem(`game-${gameId}`);
+    if (gameJSON) {
+      setGame(JSON.parse(gameJSON));
+    } else {
+      setError('Game not found in local storage. It might have been deleted or never created on this device.');
+      setGame(null);
+    }
+    setLoading(false);
+  }, [gameId]);
+
 
   useEffect(() => {
     const teamFromUrl = searchParams.get('team') as 'team1' | 'team2' | null;
@@ -57,34 +68,19 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }, [gameId, searchParams]);
 
   useEffect(() => {
-    const gameRef = doc(db, 'games', gameId);
-    const unsubscribe = onSnapshot(
-      gameRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setGame(docSnap.data() as Game);
-          setError(null);
-        } else {
-          setError('Game not found. It might have been deleted.');
-          setGame(null);
-        }
-        setLoading(false);
-      },
-      (err) => {
-        console.error('Error fetching game:', err);
-        setError('Could not connect to the game service.');
-        setLoading(false);
-      }
-    );
+    loadGameFromStorage();
 
-    return () => unsubscribe();
-  }, [gameId]);
+    // Poll localStorage for updates from other tabs (simple alternative to onSnapshot)
+    const interval = setInterval(loadGameFromStorage, 1000);
+
+    return () => clearInterval(interval);
+  }, [gameId, loadGameFromStorage]);
 
   if (loading) {
     return (
       <div className="flex flex-col items-center gap-4 text-lg">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        Connecting to game...
+        Loading game from local storage...
       </div>
     );
   }

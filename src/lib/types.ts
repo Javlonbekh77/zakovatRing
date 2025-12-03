@@ -1,3 +1,4 @@
+// Keep Timestamp for server-side compatibility, but use string for client-side.
 import type { Timestamp } from 'firebase/firestore';
 
 export interface Team {
@@ -23,9 +24,9 @@ export interface Game {
   team1?: Team;
   team2?: Team;
   winner?: 'team1' | 'team2' | 'draw';
-  createdAt: Timestamp;
-  gameStartedAt?: Timestamp;
-  lastActivityAt: Timestamp;
+  createdAt: Timestamp | string; // Can be a server timestamp or an ISO string
+  gameStartedAt?: Timestamp | string;
+  lastActivityAt: Timestamp | string;
   currentPoints: number;
   currentTurn?: 'team1' | 'team2';
 }

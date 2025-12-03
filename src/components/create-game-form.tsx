@@ -20,8 +20,10 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { createGame } from '@/app/admin/actions';
-import { useDebounce } from 'use-debounce';
+import { createGameOnClient } from '@/app/admin/actions';
+import { Game, LetterQuestion } from '@/lib/types';
+import { useRouter } from 'next/navigation';
+
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
@@ -38,10 +40,25 @@ const formSchema = z.object({
   letterQuestions: z.array(letterQuestionSchema),
 });
 
+function generateGameCode(length: number): string {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+}
+
 export default function CreateGameForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const { toast } = useToast();
+  const router = useRouter();
   
+  useEffect(() => {
+      setIsMounted(true);
+  }, []);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -57,47 +74,76 @@ export default function CreateGameForm() {
   });
 
   const mainAnswer = form.watch('mainAnswer');
-  const [debouncedMainAnswer] = useDebounce(mainAnswer, 500);
-
+  
   useEffect(() => {
-    const uniqueLetters = [...new Set(debouncedMainAnswer.replace(/\s/g, '').split(''))];
-    const existingLetterData = fields.reduce((acc, field) => {
-      acc[field.letter] = { question: field.question, answer: field.answer };
-      return acc;
-    }, {} as Record<string, { question: string; answer: string }>);
+    if (!isMounted) return;
+    const timer = setTimeout(() => {
+      const uniqueLetters = [...new Set(mainAnswer.replace(/\s/g, '').split(''))];
+      const existingLetterData = fields.reduce((acc, field) => {
+        acc[field.letter] = { question: field.question, answer: field.answer };
+        return acc;
+      }, {} as Record<string, { question: string; answer: string }>);
 
-    const newFields = uniqueLetters.map(letter => ({
-      letter,
-      question: existingLetterData[letter]?.question || '',
-      answer: existingLetterData[letter]?.answer || '',
-    }));
+      const newFields = uniqueLetters.map(letter => ({
+        letter,
+        question: existingLetterData[letter]?.question || '',
+        answer: existingLetterData[letter]?.answer || '',
+      }));
 
-    replace(newFields);
+      replace(newFields);
+    }, 500); // Debounce to avoid rapid updates
+
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedMainAnswer, replace]);
+  }, [mainAnswer, isMounted, replace]);
 
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
 
-    const formData = new FormData();
-    formData.append('mainQuestion', values.mainQuestion);
-    formData.append('mainAnswer', values.mainAnswer);
-    values.letterQuestions.forEach(lq => {
-        formData.append(`letterQuestion_${lq.letter}`, lq.question);
-        formData.append(`letterAnswer_${lq.letter}`, lq.answer);
-    });
-
     try {
-      const result = await createGame(formData);
-      if (result?.error) {
-        toast({
-          variant: 'destructive',
-          title: 'Failed to Create Game',
-          description: result.error,
+        const gameId = generateGameCode(4);
+
+        const letterQuestionsMap: Record<string, LetterQuestion> = {};
+        const uniqueLetters = [...new Set(values.mainAnswer.replace(/\s/g, '').split(''))];
+        
+        if (values.letterQuestions.length !== uniqueLetters.length) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Please fill out the questions for all unique letters in the answer.',
+            });
+            setIsSubmitting(false);
+            return;
+        }
+
+        values.letterQuestions.forEach(lq => {
+            letterQuestionsMap[lq.letter] = { question: lq.question, answer: lq.answer };
         });
-      }
-      // The action handles redirection on success.
+
+        const gameData: Game = {
+            id: gameId,
+            mainQuestion: values.mainQuestion,
+            mainAnswer: values.mainAnswer,
+            letterQuestions: letterQuestionsMap,
+            revealedLetters: [],
+            status: 'lobby',
+            createdAt: new Date().toISOString(),
+            lastActivityAt: new Date().toISOString(),
+            currentPoints: 1000,
+        };
+
+        // Save to local storage instead of server
+        localStorage.setItem(`game-${gameId}`, JSON.stringify(gameData));
+
+        toast({
+            title: 'Game Created Locally!',
+            description: `Game with code ${gameId} has been saved in your browser.`,
+        });
+
+        // Redirect using client-side router
+        router.push(`/admin/created/${gameId}`);
+
     } catch (error) {
       if (error instanceof Error) {
         toast({
@@ -109,6 +155,14 @@ export default function CreateGameForm() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  if (!isMounted) {
+      return (
+          <div className="flex justify-center items-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+      );
   }
 
   return (

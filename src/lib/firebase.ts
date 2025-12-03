@@ -1,6 +1,10 @@
-// Import the functions you need from the SDKs you need
+// This file is kept for potential future use if the app is migrated back
+// to using Firebase. For now, the app logic relies on localStorage.
+// You can re-enable Firebase by updating the components to use Firestore
+// instead of localStorage.
+
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, enableNetwork, connectFirestoreEmulator } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -16,14 +20,5 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
 
-// In a server-side context (like Next.js Server Actions), we need to ensure
-// the network is enabled. In the browser, this happens automatically.
-if (typeof window === 'undefined') {
-  try {
-    enableNetwork(db);
-  } catch (e) {
-    // This can throw if it's already enabled, which is fine.
-  }
-}
 
 export { app, db };
