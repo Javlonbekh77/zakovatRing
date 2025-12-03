@@ -58,22 +58,23 @@ export default function CreateGameForm() {
 
   const mainAnswer = form.watch('mainAnswer');
 
-  const updateLetterFields = useDebouncedCallback((answer: string) => {
+  const debouncedUpdateLetterFields = useDebouncedCallback((answer: string) => {
     const uniqueLetters = [...new Set(answer.toUpperCase().replace(/[^A-Z]/g, ''))];
     
+    const currentFields = form.getValues('letterQuestions');
     const newFields = uniqueLetters.map(letter => {
-      const existingField = fields.find(f => f.letter === letter);
+      const existingField = currentFields.find(f => f.letter === letter);
       return existingField || { letter, question: '', answer: '' };
     });
 
-    if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
+    if (JSON.stringify(newFields) !== JSON.stringify(currentFields)) {
       replace(newFields);
     }
   }, 500);
 
   useEffect(() => {
-    updateLetterFields(mainAnswer);
-  }, [mainAnswer, updateLetterFields]);
+    debouncedUpdateLetterFields(mainAnswer);
+  }, [mainAnswer, debouncedUpdateLetterFields]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
