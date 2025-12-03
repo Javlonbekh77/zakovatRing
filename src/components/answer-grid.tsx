@@ -22,8 +22,8 @@ const letterAnswerSchema = z.object({
   answer: z.string().min(1, 'Answer is required.'),
 });
 
-// Cost to reveal a letter
-const LETTER_REVEAL_COST = 5;
+// Reward for revealing a letter
+const LETTER_REVEAL_REWARD = 10;
 
 function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null }) {
   const [open, setOpen] = useState(false);
@@ -63,8 +63,8 @@ function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: stri
             // Add letter to team's specific revealed letters for this round
             if (!round[revealedLettersKey].includes(letter.toUpperCase())) {
                 round[revealedLettersKey].push(letter.toUpperCase());
-                team.score -= LETTER_REVEAL_COST; // Deduct points
-                toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! It cost ${LETTER_REVEAL_COST} points.`});
+                team.score += LETTER_REVEAL_REWARD; // Add points
+                toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! You earned ${LETTER_REVEAL_REWARD} points.`});
             } else {
                 toast({ title: "Already Revealed", description: `You have already revealed this letter.`});
             }
@@ -129,10 +129,10 @@ function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: stri
 export default function AnswerGrid({ game, currentRound, playerTeam }: AnswerGridProps) {
   const answerChars = currentRound.mainAnswer.split('');
   
-  // Determine which set of revealed letters to use based on the player's team
+  // Combine both teams' revealed letters for spectators, but only own team's for players
   const revealedLetters = playerTeam 
     ? (playerTeam === 'team1' ? currentRound.team1RevealedLetters : currentRound.team2RevealedLetters)
-    : [];
+    : [...new Set([...currentRound.team1RevealedLetters, ...currentRound.team2RevealedLetters])];
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
