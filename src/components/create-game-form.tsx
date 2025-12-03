@@ -25,7 +25,6 @@ import {
 import { useEffect, useState } from 'react';
 import { createGame } from '@/app/admin/actions';
 import { Loader2, Send } from 'lucide-react';
-import { useDebouncedCallback } from 'use-debounce';
 import { Separator } from './ui/separator';
 
 const formSchema = z.object({
@@ -42,7 +41,6 @@ const formSchema = z.object({
 
 export default function CreateGameForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -60,8 +58,8 @@ export default function CreateGameForm() {
 
   const mainAnswer = form.watch('mainAnswer');
 
-  const debouncedUpdateLetterFields = useDebouncedCallback((answer: string) => {
-    const uniqueLetters = [...new Set(answer.toUpperCase().replace(/[^A-Z]/g, ''))];
+  useEffect(() => {
+    const uniqueLetters = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))];
     
     const currentFields = form.getValues('letterQuestions');
     const newFields = uniqueLetters.map(letter => {
@@ -69,21 +67,12 @@ export default function CreateGameForm() {
       return existingField || { letter, question: '', answer: '' };
     });
 
-    // Only replace if there's an actual change to avoid unnecessary re-renders
     if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
       replace(newFields);
     }
-  }, 500);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainAnswer, form, replace]);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (isMounted) {
-      debouncedUpdateLetterFields(mainAnswer);
-    }
-  }, [mainAnswer, isMounted, debouncedUpdateLetterFields]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
@@ -132,7 +121,7 @@ export default function CreateGameForm() {
           )}
         />
 
-        {isMounted && fields.length > 0 && (
+        {fields.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Letter-Reveal Questions</CardTitle>
