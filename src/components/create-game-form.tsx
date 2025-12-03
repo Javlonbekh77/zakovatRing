@@ -19,8 +19,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createGame } from '@/app/admin/actions';
+import { useDebounce } from 'use-debounce';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
@@ -56,29 +57,24 @@ export default function CreateGameForm() {
   });
 
   const mainAnswer = form.watch('mainAnswer');
+  const [debouncedMainAnswer] = useDebounce(mainAnswer, 500);
 
   useEffect(() => {
-    const handler = setTimeout(() => {
-      const uniqueLetters = [...new Set(mainAnswer.replace(/\s/g, '').split(''))];
-      const existingLetterData = fields.reduce((acc, field) => {
-        acc[field.letter] = { question: field.question, answer: field.answer };
-        return acc;
-      }, {} as Record<string, { question: string; answer: string }>);
+    const uniqueLetters = [...new Set(debouncedMainAnswer.replace(/\s/g, '').split(''))];
+    const existingLetterData = fields.reduce((acc, field) => {
+      acc[field.letter] = { question: field.question, answer: field.answer };
+      return acc;
+    }, {} as Record<string, { question: string; answer: string }>);
 
-      const newFields = uniqueLetters.map(letter => ({
-        letter,
-        question: existingLetterData[letter]?.question || '',
-        answer: existingLetterData[letter]?.answer || '',
-      }));
+    const newFields = uniqueLetters.map(letter => ({
+      letter,
+      question: existingLetterData[letter]?.question || '',
+      answer: existingLetterData[letter]?.answer || '',
+    }));
 
-      replace(newFields);
-    }, 500); // 500ms delay
-
-    return () => {
-      clearTimeout(handler);
-    };
+    replace(newFields);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainAnswer, replace]);
+  }, [debouncedMainAnswer, replace]);
 
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
