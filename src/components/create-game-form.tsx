@@ -60,7 +60,6 @@ export default function CreateGameForm() {
 
   const updateLetterFields = useDebouncedCallback((answer: string) => {
     const uniqueLetters = [...new Set(answer.toUpperCase().replace(/[^A-Z]/g, ''))];
-    const existingLetters = fields.map((f) => f.letter);
     
     const newFields = uniqueLetters.map(letter => {
       const existingField = fields.find(f => f.letter === letter);
