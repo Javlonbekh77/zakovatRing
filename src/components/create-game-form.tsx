@@ -88,6 +88,7 @@ export default function CreateGameForm() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
     await createGame(values);
+    // Setting isSubmitting to false is not strictly necessary due to redirect, but good practice.
     setIsSubmitting(false);
   }
 
@@ -178,9 +179,9 @@ export default function CreateGameForm() {
 
         <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
           {isSubmitting ? (
-            <Loader2 className="animate-spin" />
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
-            <Send />
+            <Send className="mr-2 h-4 w-4" />
           )}
           Create Game
         </Button>
