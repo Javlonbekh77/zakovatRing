@@ -82,7 +82,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
         }));
 
         replace(newFields);
-    }, [mainAnswer, replace, fields]);
+    }, [mainAnswer, replace]);
 
     return (
         <Card>
@@ -155,6 +155,11 @@ export default function CreateGameForm() {
     async function onSubmit(values: z.infer<typeof formSchema>) {
         setIsSubmitting(true);
         try {
+            if (!firestore) {
+              toast({ variant: 'destructive', title: 'Error', description: 'Firestore is not initialized.' });
+              setIsSubmitting(false);
+              return;
+            }
             const gameId = generateGameCode(4);
 
             const gameRounds: Round[] = values.rounds.map(r => {
