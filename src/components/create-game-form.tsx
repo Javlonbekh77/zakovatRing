@@ -69,7 +69,8 @@ export default function CreateGameForm() {
       return existingField || { letter, question: '', answer: '' };
     });
 
-    if (JSON.stringify(newFields) !== JSON.stringify(currentFields)) {
+    // Only replace if there's an actual change to avoid unnecessary re-renders
+    if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
       replace(newFields);
     }
   }, 500);
