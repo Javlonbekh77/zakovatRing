@@ -13,8 +13,8 @@ export default function SpectatePage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-       <Suspense fallback={<div className="text-xl">Loading Game for Spectators...</div>}>
+    <div className="flex-1 flex flex-col items-start justify-start p-2 sm:p-4 md:p-6 bg-muted/40">
+       <Suspense fallback={<div className="text-xl w-full text-center pt-20">Loading Game for Spectators...</div>}>
          {/* By not passing assignedTeam, GameClient defaults to spectator mode */}
          <GameClient gameId={gameId} />
        </Suspense>

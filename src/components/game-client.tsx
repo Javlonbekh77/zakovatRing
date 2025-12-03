@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import type { Game } from '@/lib/types';
+import type { Game, Round } from '@/lib/types';
 import {
   Card,
   CardContent,
@@ -10,16 +10,96 @@ import {
   CardHeader,
   CardTitle,
 } from './ui/card';
-import { Loader2, Users, Trophy } from 'lucide-react';
+import { Loader2, Users, Trophy, Circle, CheckCircle2, Award } from 'lucide-react';
 import Scoreboard from './scoreboard';
 import GameArea from './game-area';
 import { Button } from './ui/button';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { Badge } from './ui/badge';
 
 interface GameClientProps {
   gameId: string;
   assignedTeam?: 'team1' | 'team2' | undefined;
+}
+
+function SpectatorView({ game }: { game: Game }) {
+  const getWinner = () => {
+    if (game.status !== 'finished' || !game.team1 || !game.team2) return null;
+    if (game.team1.score > game.team2.score) return game.team1;
+    if (game.team2.score > game.team1.score) return game.team2;
+    return null; // Draw
+  };
+
+  const winner = getWinner();
+
+  return (
+    <div className="w-full max-w-6xl mx-auto space-y-6">
+      <Card className='shadow-xl'>
+        <CardHeader>
+          <CardTitle className='text-3xl font-headline text-center'>Spectator Dashboard</CardTitle>
+          <CardDescription className='text-center'>
+            Game Code: <strong className="font-mono">{game.id}</strong>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Scoreboard team1={game.team1} team2={game.team2} playerTeam={null} />
+        </CardContent>
+      </Card>
+      
+      {game.status === 'finished' && (
+         <Card className="w-full text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="mx-auto w-fit rounded-full bg-yellow-100 p-4 dark:bg-yellow-900/50 mb-4">
+                <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />
+            </div>
+            <CardHeader className='pt-0'>
+            <CardTitle className="text-4xl font-headline">Game Over!</CardTitle>
+            {winner ? (
+                <CardDescription className="text-xl">
+                <span className='font-bold text-primary'>{winner.name}</span> wins!
+                </CardDescription>
+            ) : (
+                <CardDescription className="text-xl">It's a draw!</CardDescription>
+            )}
+            </CardHeader>
+        </Card>
+      )}
+
+      <div className='space-y-4'>
+        <h3 className='text-2xl font-bold text-center'>Rounds Overview</h3>
+        {game.rounds.map((round, index) => (
+          <Card key={index} className={`border-l-4 ${index === game.currentRoundIndex && game.status === 'in_progress' ? 'border-primary shadow-lg' : 'border-border'}`}>
+            <CardHeader>
+              <div className='flex justify-between items-center'>
+                <CardTitle>Round {index + 1}</CardTitle>
+                {round.status === 'finished' ? (
+                  <Badge variant='secondary'><CheckCircle2 className='mr-2' />Finished</Badge>
+                ) : round.status === 'in_progress' ? (
+                  <Badge><Circle className='mr-2 animate-pulse' />In Progress</Badge>
+                ) : (
+                  <Badge variant='outline'>Pending</Badge>
+                )}
+              </div>
+              <CardDescription>{round.mainQuestion}</CardDescription>
+            </CardHeader>
+            {round.winner && (
+              <CardFooter>
+                 <div className='text-sm text-muted-foreground flex items-center'>
+                   <Award className='mr-2 h-4 w-4 text-yellow-500' />
+                   Winner: <span className='font-bold text-foreground ml-1'>{game[round.winner]?.name}</span>,
+                   <span className='font-bold text-foreground ml-1'>+{round.currentPoints}</span> points
+                 </div>
+              </CardFooter>
+            )}
+          </Card>
+        ))}
+      </div>
+
+       <Button asChild className='w-full mt-8'>
+          <Link href="/">Back to Home</Link>
+        </Button>
+    </div>
+  )
 }
 
 export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
@@ -48,42 +128,40 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
 
   useEffect(() => {
-    const teamFromUrl = searchParams.get('team') as 'team1' | 'team2' | null;
-    let storedTeamInfo = null;
+    // Spectator mode has no assigned team
+    if (assignedTeam === undefined && !window.location.pathname.includes('/spectate')) {
+      const teamFromUrl = searchParams.get('team') as 'team1' | 'team2' | null;
+      let storedTeamInfo = null;
 
-    try {
-      const item = localStorage.getItem(`zakovat-game-${gameId}`);
-      if (item) {
-        storedTeamInfo = JSON.parse(item);
-      }
-    } catch (e) {
-      console.error('Could not parse team info from localStorage', e);
-    }
-    
-    if (assignedTeam) {
-      setPlayerTeam(assignedTeam);
-       try {
-        localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: assignedTeam }));
-      } catch (e) {
-        console.error('Could not write team info to localStorage', e);
-      }
-    } else if (teamFromUrl) {
-      setPlayerTeam(teamFromUrl);
       try {
-        localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: teamFromUrl }));
+        const item = localStorage.getItem(`zakovat-game-${gameId}`);
+        if (item) {
+          storedTeamInfo = JSON.parse(item);
+        }
       } catch (e) {
-        console.error('Could not write team info to localStorage', e);
+        console.error('Could not parse team info from localStorage', e);
       }
-    } else if (storedTeamInfo) {
-      setPlayerTeam(storedTeamInfo.team);
+      
+      const teamToSet = assignedTeam || teamFromUrl || storedTeamInfo?.team || null;
+      setPlayerTeam(teamToSet);
+
+      if (teamToSet) {
+        try {
+          localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: teamToSet }));
+        } catch (e) {
+          console.error('Could not write team info to localStorage', e);
+        }
+      }
+    } else if (assignedTeam) {
+        setPlayerTeam(assignedTeam);
     }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, searchParams, assignedTeam]);
 
   useEffect(() => {
     loadGameFromStorage();
 
-    // Poll localStorage for updates from other tabs (simple alternative to onSnapshot)
     const interval = setInterval(loadGameFromStorage, 1000);
 
     return () => clearInterval(interval);
@@ -107,6 +185,12 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
   
   const currentRound = game.rounds[game.currentRoundIndex];
+  const isSpectator = playerTeam === null;
+
+  // Render spectator-specific dashboard
+  if (isSpectator) {
+    return <SpectatorView game={game} />
+  }
   
   const getWinner = () => {
     if (!game.team1 || !game.team2) return null;
