@@ -253,3 +253,5 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     </div>
   );
 }
+
+    
