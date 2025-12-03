@@ -74,6 +74,7 @@ export default function CreateGameForm() {
     }
   }, 500);
 
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
