@@ -44,9 +44,8 @@ service cloud.firestore {
     match /games/{gameId} {
       allow get: if true;
       allow list: if true;
-      // CRITICAL: Cannot implement owner-only or admin-only writes. The 'Game' entity is missing an 'ownerId', 'adminId', or similar field for authorization.
-      allow create: if false; // TODO: Add owner/admin validation once the schema is updated.
-      allow update: if false; // TODO: Add owner/admin validation once the schema is updated.
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
       allow delete: if false; // TODO: Add owner/admin validation once the schema is updated.
     }
 

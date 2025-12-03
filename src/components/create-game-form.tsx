@@ -24,9 +24,10 @@ import { Game, LetterQuestion, Round } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
-import { useFirestore } from '@/firebase';
+import { useFirestore, useUser } from '@/firebase';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
+import { Skeleton } from './ui/skeleton';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
@@ -49,10 +50,17 @@ const formSchema = z.object({
 
 
 function generateGameCode(length: number): string {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
-    for (let i = 0; i < length; i++) {
-        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    // This is not cryptographically secure, but fine for a game code.
+    // Hydration errors can occur with Math.random if not handled correctly.
+    if (typeof window !== 'undefined') {
+        for (let i = 0; i < length; i++) {
+            result += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+    } else {
+        // Fallback for SSR, can be a fixed string or a simpler randomizer
+        result = 'CODE'; 
     }
     return result;
 }
@@ -132,6 +140,11 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
                         </div>
                     </div>
                 ))}
+                {fields.length === 0 && (
+                    <p className='text-muted-foreground text-center py-4'>
+                        Enter a main answer above to generate letter questions.
+                    </p>
+                )}
             </CardContent>
         </Card>
     );
@@ -143,6 +156,7 @@ export default function CreateGameForm() {
     const { toast } = useToast();
     const router = useRouter();
     const firestore = useFirestore();
+    const { user, isUserLoading } = useUser();
 
     useEffect(() => {
         setIsClient(true);
@@ -162,12 +176,13 @@ export default function CreateGameForm() {
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
         setIsSubmitting(true);
+        if (!firestore || !user) {
+            toast({ variant: 'destructive', title: 'Error', description: 'You must be signed in to create a game.' });
+            setIsSubmitting(false);
+            return;
+        }
+
         try {
-            if (!firestore) {
-              toast({ variant: 'destructive', title: 'Error', description: 'Firestore is not initialized.' });
-              setIsSubmitting(false);
-              return;
-            }
             const gameId = generateGameCode(4);
 
             const gameRounds: Round[] = values.rounds.map(r => {
@@ -232,11 +247,12 @@ export default function CreateGameForm() {
         }
     }
 
-    if (!isClient) {
+    if (!isClient || isUserLoading) {
         return (
             <div className="space-y-8">
-                <div className="w-full h-24 rounded-lg bg-muted animate-pulse"></div>
-                <div className="w-full h-12 rounded-lg bg-muted animate-pulse"></div>
+                <Skeleton className="w-full h-40 rounded-lg bg-muted animate-pulse" />
+                <Skeleton className="w-full h-12 rounded-lg bg-muted animate-pulse" />
+                <Skeleton className="w-full h-12 rounded-lg bg-muted animate-pulse" />
             </div>
         );
     }
@@ -314,7 +330,7 @@ export default function CreateGameForm() {
 
                 <Separator />
 
-                <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+                <Button type="submit" className="w-full" size="lg" disabled={isSubmitting || !user}>
                     {isSubmitting ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
