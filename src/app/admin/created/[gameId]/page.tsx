@@ -12,16 +12,14 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { CheckCircle, Clipboard, Home } from 'lucide-react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-export default function GameCreatedPage({
-  params,
-}: {
-  params: { gameId: string };
-}) {
+export default function GameCreatedPage() {
   const { toast } = useToast();
   const [joinUrl, setJoinUrl] = useState('');
-  const { gameId } = params;
+  const params = useParams();
+  const gameId = Array.isArray(params.gameId) ? params.gameId[0] : params.gameId;
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -30,6 +28,7 @@ export default function GameCreatedPage({
   }, []);
 
   const copyToClipboard = () => {
+    if (!gameId) return;
     const textToCopy = `Game Code: ${gameId}`;
     navigator.clipboard.writeText(textToCopy);
     toast({
