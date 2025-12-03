@@ -102,62 +102,65 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
   const isMyTurn = playerTeam === game.currentTurn;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <Card className="lg:col-span-2">
-        <CardHeader>
-          <div className='flex justify-between items-start'>
-            <div>
-              <CardTitle className="font-headline text-2xl">
-                The Question
-              </CardTitle>
+    <div className="w-full max-w-6xl mx-auto space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2">
+            <CardHeader>
+            <div className='flex justify-between items-start'>
+                <div>
+                <CardTitle className="font-headline text-2xl">
+                    The Question
+                </CardTitle>
+                </div>
+                <Badge variant="secondary" className="text-lg font-mono font-bold">
+                {points} Points
+                </Badge>
             </div>
-            <Badge variant="secondary" className="text-lg font-mono font-bold">
-              {points} Points
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <p className="text-lg md:text-xl leading-relaxed">
-            {game.mainQuestion}
-          </p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Team's Controls</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {playerTeam ? (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleAnswerSubmit)} className='space-y-4'>
-                <FormField
-                  control={form.control}
-                  name="answer"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormControl>
-                        <Input placeholder="Type your final answer" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" disabled={isSubmitting || !isMyTurn} className='w-full'>
-                   {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
-                   Submit Final Answer
-                </Button>
-                {!isMyTurn && <p className='text-sm text-center text-muted-foreground mt-2'>Wait for your turn to answer.</p>}
-              </form>
+            </CardHeader>
+            <CardContent>
+            <p className="text-lg md:text-xl leading-relaxed">
+                {game.mainQuestion}
+            </p>
+            </CardContent>
+        </Card>
+        <Card>
+            <CardHeader>
+            <CardTitle>Your Team's Controls</CardTitle>
+            </CardHeader>
+            <CardContent>
+            {playerTeam ? (
+                <Form {...form}>
+                <form onSubmit={form.handleSubmit(handleAnswerSubmit)} className='space-y-4'>
+                    <FormField
+                    control={form.control}
+                    name="answer"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormControl>
+                            <Input placeholder="Type your final answer" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <Button type="submit" disabled={isSubmitting || !isMyTurn} className='w-full'>
+                    {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
+                    Submit Final Answer
+                    </Button>
+                    {!isMyTurn && <p className='text-sm text-center text-muted-foreground mt-2'>Wait for your turn to answer.</p>}
+                </form>
+                </Form>
             ) : (
                 <p className='text-muted-foreground text-center'>You are observing this game.</p>
             )}
-        </CardContent>
-      </Card>
-      <Card className="lg:col-span-3">
-        <CardContent className="p-6">
-          <AnswerGrid game={game} playerTeam={playerTeam} />
-        </CardContent>
-      </Card>
+            </CardContent>
+        </Card>
+        </div>
+        <Card className="lg:col-span-3">
+            <CardContent className="p-6">
+                <AnswerGrid game={game} playerTeam={playerTeam} />
+            </CardContent>
+        </Card>
     </div>
   );
 }
