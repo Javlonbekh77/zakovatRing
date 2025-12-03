@@ -51,8 +51,8 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
   }, [game.status, game.currentPoints]);
 
   const handleAnswerSubmit = async (values: z.infer<typeof answerSchema>) => {
-    if (!playerTeam || game.currentTurn !== playerTeam) {
-        toast({ variant: "destructive", title: "Not your turn!", description: "Wait for the other team to make a move." });
+    if (!playerTeam) {
+        toast({ variant: "destructive", title: "You are a spectator!", description: "You cannot submit answers." });
         return;
     }
 
@@ -77,7 +77,7 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
       } else {
           updatedGame = {
               ...currentGame,
-              currentTurn: playerTeam === 'team1' ? 'team2' : 'team1',
+              currentTurn: playerTeam === 'team1' ? 'team2' : 'team1', // Turn still passes
               lastActivityAt: new Date().toISOString(),
           };
           toast({
@@ -98,8 +98,6 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
       setIsSubmitting(false);
     }
   };
-
-  const isMyTurn = playerTeam === game.currentTurn;
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-4">
@@ -143,11 +141,10 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
                         </FormItem>
                     )}
                     />
-                    <Button type="submit" disabled={isSubmitting || !isMyTurn} className='w-full'>
+                    <Button type="submit" disabled={isSubmitting} className='w-full'>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
                     Submit Final Answer
                     </Button>
-                    {!isMyTurn && <p className='text-sm text-center text-muted-foreground mt-2'>Wait for your turn to answer.</p>}
                 </form>
                 </Form>
             ) : (
