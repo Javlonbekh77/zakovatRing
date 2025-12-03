@@ -69,11 +69,11 @@ export default function CreateGameForm() {
       return existingField || { letter, question: '', answer: '' };
     });
 
+    // Only replace if there's an actual change to avoid unnecessary re-renders
     if (JSON.stringify(newFields) !== JSON.stringify(currentFields)) {
       replace(newFields);
     }
   }, 500);
-
 
   useEffect(() => {
     setIsMounted(true);
@@ -83,7 +83,8 @@ export default function CreateGameForm() {
     if (isMounted) {
       debouncedUpdateLetterFields(mainAnswer);
     }
-  }, [mainAnswer, debouncedUpdateLetterFields, isMounted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainAnswer, isMounted]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
