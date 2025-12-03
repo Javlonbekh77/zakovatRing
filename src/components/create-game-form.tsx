@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import * as z from 'zod';
 import {
   Form,
@@ -59,7 +59,10 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
         name: `rounds.${roundIndex}.letterQuestions`
     });
 
-    const mainAnswer = useForm().watch(`rounds.${roundIndex}.mainAnswer`);
+    const mainAnswer = useWatch({
+      control,
+      name: `rounds.${roundIndex}.mainAnswer`,
+    });
 
     useEffect(() => {
         const uniqueLetters = [...new Set((mainAnswer || '').replace(/\s/g, '').split(''))];
@@ -101,7 +104,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
                                     <FormItem>
                                         <FormLabel>Question</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Question for '${(field as any).name}'`} {...field} />
+                                            <Input placeholder={`Question for '${(field as any).letter}'`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -114,7 +117,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
                                     <FormItem>
                                         <FormLabel>Answer</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Answer for '${(field as any).name}'`} {...field} />
+                                            <Input placeholder={`Answer for '${(field as any).letter}'`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
