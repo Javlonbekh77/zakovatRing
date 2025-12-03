@@ -2,18 +2,18 @@
 
 import { db } from '@/lib/firebase';
 import type { Game, LetterQuestion } from '@/lib/types';
-import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { redirect } from 'next/navigation';
 import * as z from 'zod';
 
 const formSchema = z.object({
-  mainQuestion: z.string().min(10),
-  mainAnswer: z.string().min(1),
+  mainQuestion: z.string().min(10, 'Question must be at least 10 characters.'),
+  mainAnswer: z.string().min(1, 'Answer is required.'),
   letterQuestions: z.array(
     z.object({
       letter: z.string(),
-      question: z.string().min(1),
-      answer: z.string().min(1),
+      question: z.string().min(1, 'Question for the letter is required.'),
+      answer: z.string().min(1, 'Answer for the letter is required.'),
     })
   ),
 });
@@ -31,13 +31,11 @@ export async function createGame(values: z.infer<typeof formSchema>) {
   const validatedFields = formSchema.safeParse(values);
 
   if (!validatedFields.success) {
-    // This should ideally not be reached if client-side validation is working
     throw new Error('Invalid form data submitted.');
   }
 
   const { mainQuestion, mainAnswer, letterQuestions } = validatedFields.data;
-  
-  // Server-side validation to ensure all unique letters have a corresponding question.
+
   const uniqueLettersInAnswer = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))];
   const lettersWithQuestions = new Set(letterQuestions.map(q => q.letter.toUpperCase()));
 
@@ -54,7 +52,7 @@ export async function createGame(values: z.infer<typeof formSchema>) {
       answer: item.answer,
     };
   });
-  
+
   const gameData: Game = {
     id: gameId,
     mainQuestion,
@@ -71,10 +69,8 @@ export async function createGame(values: z.infer<typeof formSchema>) {
     await setDoc(doc(db, 'games', gameId), gameData);
   } catch (error) {
     console.error('Error creating game in Firestore:', error);
-    // Propagate a more user-friendly error
     throw new Error('Could not create the game in the database. Please try again later.');
   }
 
-  // Redirect on success
   redirect(`/admin/created/${gameId}`);
 }
