@@ -42,6 +42,7 @@ const formSchema = z.object({
 
 export default function CreateGameForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -61,20 +62,25 @@ export default function CreateGameForm() {
   const mainAnswerValue = form.watch('mainAnswer');
 
   useEffect(() => {
-    const uniqueLetters = [...new Set(mainAnswerValue.toUpperCase().replace(/[^A-Z]/g, ''))].sort();
-    const existingFields = form.getValues('letterQuestions');
+    setIsMounted(true);
+  }, []);
 
+  useEffect(() => {
+    const uniqueLetters = [...new Set(mainAnswerValue.toUpperCase().replace(/[^A-Z]/g, ''))].sort();
+    
+    // Get current fields to preserve user input
+    const existingFields = form.getValues('letterQuestions');
     const newFields = uniqueLetters.map(letter => {
-      const existingField = existingFields.find(f => f.letter === letter);
-      return existingField ? existingField : { letter, question: '', answer: '' };
+        const existingField = existingFields.find(f => f.letter === letter);
+        return existingField ? existingField : { letter, question: '', answer: '' };
     });
     
-    // Only update if the letters themselves have changed, to avoid infinite loops and unnecessary re-renders.
+    // Avoid re-rendering if the letters haven't changed
     const currentLetters = fields.map(f => f.letter).join('');
-    const newLetters = newFields.map(f => f.letter).join('');
-
-    if (currentLetters !== newLetters) {
-      replace(newFields);
+    const newLettersString = newFields.map(f => f.letter).join('');
+    
+    if (currentLetters !== newLettersString) {
+        replace(newFields);
     }
   }, [mainAnswerValue, replace, fields, form]);
 
@@ -137,7 +143,7 @@ export default function CreateGameForm() {
           )}
         />
 
-        {fields.length > 0 && (
+        {isMounted && fields.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Letter-Reveal Questions</CardTitle>
