@@ -69,7 +69,6 @@ export default function CreateGameForm() {
       return existingField || { letter, question: '', answer: '' };
     });
 
-    // Only replace if there's an actual change to avoid unnecessary re-renders
     if (JSON.stringify(newFields) !== JSON.stringify(currentFields)) {
       replace(newFields);
     }
@@ -83,14 +82,17 @@ export default function CreateGameForm() {
     if (isMounted) {
       debouncedUpdateLetterFields(mainAnswer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainAnswer, isMounted]);
+  }, [mainAnswer, isMounted, debouncedUpdateLetterFields]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
-    await createGame(values);
-    // Setting isSubmitting to false is not strictly necessary due to redirect, but good practice.
-    setIsSubmitting(false);
+    try {
+      await createGame(values);
+    } catch (error) {
+      // In case of an error not leading to a redirect, re-enable the button
+      setIsSubmitting(false);
+      console.error(error);
+    }
   }
 
   return (
