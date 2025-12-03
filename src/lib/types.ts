@@ -19,7 +19,6 @@ export interface Round {
   status: RoundStatus;
   winner?: 'team1' | 'team2' | null;
   currentPoints: number;
-  // State for each team within the round
   team1RevealedLetters: string[];
   team2RevealedLetters: string[];
 }
@@ -33,6 +32,6 @@ export interface Game {
   status: GameStatus;
   team1?: Team;
   team2?: Team;
-  createdAt: Timestamp | string;
-  lastActivityAt: Timestamp | string;
+  createdAt: Timestamp;
+  lastActivityAt: Timestamp;
 }

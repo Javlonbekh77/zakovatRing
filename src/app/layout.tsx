@@ -3,6 +3,7 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import Header from '@/components/header';
+import { FirebaseClientProvider } from '@/firebase';
 
 export const metadata: Metadata = {
   title: 'Zakovat Ring',
@@ -34,9 +35,11 @@ export default function RootLayout({
           'flex flex-col'
         )}
       >
-        <Header />
-        <main className="flex-1 flex flex-col">{children}</main>
-        <Toaster />
+        <FirebaseClientProvider>
+          <Header />
+          <main className="flex-1 flex flex-col">{children}</main>
+          <Toaster />
+        </FirebaseClientProvider>
       </body>
     </html>
   );

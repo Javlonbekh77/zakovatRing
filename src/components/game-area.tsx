@@ -14,6 +14,8 @@ import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
+import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { useFirestore } from '@/firebase';
 
 interface GameAreaProps {
   game: Game;
@@ -31,54 +33,56 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [points, setPoints] = useState(currentRound.currentPoints);
   const { toast } = useToast();
-
-  const form = useForm<z.infer<typeof answerSchema>>({
-    resolver: zodResolver(answerSchema),
-    defaultValues: {
-      answer: '',
-    },
-  });
+  const firestore = useFirestore();
 
   // Effect for points countdown
   useEffect(() => {
-    if (currentRound.status !== 'in_progress') return;
+    if (typeof window === 'undefined' || currentRound.status !== 'in_progress' || !firestore) return;
 
-    const interval = setInterval(() => {
-        const gameDataStr = localStorage.getItem(`game-${game.id}`);
-        if(gameDataStr) {
-            const currentGame: Game = JSON.parse(gameDataStr);
-            const roundInStorage = currentGame.rounds[currentGame.currentRoundIndex];
-            
-            if(roundInStorage.status !== 'in_progress') {
-                clearInterval(interval);
-                return;
-            }
+    const interval = setInterval(async () => {
+        const gameDocRef = doc(firestore, 'games', game.id);
+        try {
+            await runTransaction(firestore, async (transaction) => {
+                const gameSnap = await transaction.get(gameDocRef);
+                if (!gameSnap.exists()) throw "Game not found!";
 
-            const newPoints = Math.max(0, roundInStorage.currentPoints - 1);
-            roundInStorage.currentPoints = newPoints;
-            
-            // If points reach 0 and round is still in progress, finish it
-            if(newPoints === 0) {
-              roundInStorage.status = 'finished';
-              roundInStorage.winner = null; // No winner
-              toast({ title: `Round ${currentGame.currentRoundIndex + 1} Over`, description: "Time ran out! No one gets the points for this round."});
-              
-              // Move to next round or finish game
-              if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
-                  currentGame.currentRoundIndex += 1;
-                  currentGame.rounds[currentGame.currentRoundIndex].status = 'in_progress';
-              } else {
-                  currentGame.status = 'finished';
-              }
-            }
-            
-            localStorage.setItem(`game-${game.id}`, JSON.stringify(currentGame));
+                const currentGame = gameSnap.data() as Game;
+                const roundInDB = currentGame.rounds[currentGame.currentRoundIndex];
+
+                if (roundInDB.status !== 'in_progress') {
+                    clearInterval(interval);
+                    return;
+                }
+
+                const newPoints = Math.max(0, roundInDB.currentPoints - 1);
+                
+                const updateData: any = {
+                    [`rounds.${currentGame.currentRoundIndex}.currentPoints`]: newPoints,
+                    lastActivityAt: serverTimestamp()
+                };
+
+                if (newPoints === 0) {
+                    updateData[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
+                    updateData[`rounds.${currentGame.currentRoundIndex}.winner`] = null;
+
+                    if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
+                        updateData.currentRoundIndex = currentGame.currentRoundIndex + 1;
+                        updateData[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
+                    } else {
+                        updateData.status = 'finished';
+                    }
+                }
+                
+                transaction.update(gameDocRef, updateData);
+            });
+        } catch (error) {
+            console.error("Points countdown transaction failed: ", error);
+            clearInterval(interval);
         }
-    }, 1000); // Decrease 1 point every second
+    }, 1000); 
 
     return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game.id, game.currentRoundIndex, currentRound.status]);
+  }, [firestore, game.id, game.currentRoundIndex, currentRound.status]);
 
 
   // Effect to update local component state for UI from game state
@@ -88,61 +92,62 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
 
 
   const handleAnswerSubmit = async (values: z.infer<typeof answerSchema>) => {
-    if (!playerTeam) {
+    if (!playerTeam || !firestore) {
         toast({ variant: "destructive", title: "You are a spectator!", description: "You cannot submit answers." });
         return;
     }
 
     setIsSubmitting(true);
     try {
-      const gameJSON = localStorage.getItem(`game-${game.id}`);
-      if (!gameJSON) throw new Error("Game data not found in storage.");
-      let currentGame: Game = JSON.parse(gameJSON);
-      let round = currentGame.rounds[currentGame.currentRoundIndex];
-      const team = currentGame[playerTeam];
-      if (!team) throw new Error("Team data is missing");
+      const gameDocRef = doc(firestore, 'games', game.id);
       
-      if (round.status !== 'in_progress') {
-        toast({ title: "Round Over", description: "This round has already finished." });
-        setIsSubmitting(false);
-        return;
-      }
+      await runTransaction(firestore, async (transaction) => {
+          const gameSnap = await transaction.get(gameDocRef);
+          if (!gameSnap.exists()) throw new Error("Game data not found.");
 
-      const isCorrect = round.mainAnswer.toLowerCase().trim() === values.answer.toLowerCase().trim();
+          const currentGame = gameSnap.data() as Game;
+          const round = currentGame.rounds[currentGame.currentRoundIndex];
+          const team = currentGame[playerTeam];
 
-      if (isCorrect) {
-          // Update round status
-          round.status = 'finished';
-          round.winner = playerTeam;
-          
-          // Update team's total score
-          team.score += round.currentPoints;
-
-          toast({
-            title: `Correct! Round ${currentGame.currentRoundIndex + 1} finished.`,
-            description: `Your team gets ${round.currentPoints} points.`,
-          });
-
-          // Check if there is a next round
-          if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
-              currentGame.currentRoundIndex += 1;
-              currentGame.rounds[currentGame.currentRoundIndex].status = 'in_progress';
-          } else {
-              // This was the last round, finish the game
-              currentGame.status = 'finished';
+          if (!team) throw new Error("Team data is missing");
+      
+          if (round.status !== 'in_progress') {
+            toast({ title: "Round Over", description: "This round has already finished." });
+            return;
           }
-      } else {
-          // Apply penalty for incorrect answer
-          team.score -= INCORRECT_ANSWER_PENALTY;
-          toast({
-            variant: 'destructive',
-            title: 'Incorrect Answer',
-            description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
-          });
-      }
-      
-      currentGame.lastActivityAt = new Date().toISOString();
-      localStorage.setItem(`game-${game.id}`, JSON.stringify(currentGame));
+
+          const isCorrect = round.mainAnswer.toLowerCase().trim() === values.answer.toLowerCase().trim();
+          const teamScorePath = `${playerTeam}.score`;
+          let updateData: any = { lastActivityAt: serverTimestamp() };
+
+          if (isCorrect) {
+              const pointsWon = round.currentPoints;
+              updateData[teamScorePath] = team.score + pointsWon;
+              updateData[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
+              updateData[`rounds.${currentGame.currentRoundIndex}.winner`] = playerTeam;
+              
+              toast({
+                title: `Correct! Round ${currentGame.currentRoundIndex + 1} finished.`,
+                description: `Your team gets ${pointsWon} points.`,
+              });
+
+              if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
+                  updateData.currentRoundIndex = currentGame.currentRoundIndex + 1;
+                  updateData[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
+              } else {
+                  updateData.status = 'finished';
+              }
+          } else {
+              updateData[teamScorePath] = team.score - INCORRECT_ANSWER_PENALTY;
+              toast({
+                variant: 'destructive',
+                title: 'Incorrect Answer',
+                description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
+              });
+          }
+          
+          transaction.update(gameDocRef, updateData);
+      });
       form.reset();
 
     } catch (error) {

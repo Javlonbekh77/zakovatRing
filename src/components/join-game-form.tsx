@@ -17,6 +17,9 @@ import { useState } from 'react';
 import { Loader2, LogIn } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Game } from '@/lib/types';
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { useFirestore } from '@/firebase';
+import { useRouter } from 'next/navigation';
 
 const formSchema = z.object({
   gameCode: z
@@ -32,6 +35,8 @@ const formSchema = z.object({
 export default function JoinGameForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const firestore = useFirestore();
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -45,19 +50,20 @@ export default function JoinGameForm() {
     setIsSubmitting(true);
     try {
       const gameId = values.gameCode.toUpperCase();
-      const gameJSON = localStorage.getItem(`game-${gameId}`);
+      const gameDocRef = doc(firestore, 'games', gameId);
+      const gameSnap = await getDoc(gameDocRef);
 
-      if (!gameJSON) {
+      if (!gameSnap.exists()) {
         toast({
           variant: 'destructive',
           title: 'Game Not Found',
-          description: 'No game with this code was found in your browser\'s storage.',
+          description: 'No game with this code was found.',
         });
         setIsSubmitting(false);
         return;
       }
       
-      const game: Game = JSON.parse(gameJSON);
+      const game = gameSnap.data() as Game;
 
       if (game.status !== 'lobby') {
         toast({
@@ -86,33 +92,22 @@ export default function JoinGameForm() {
         return;
       }
       
-      if ( (teamSlot === 'team1' && game.team1) || (teamSlot === 'team2' && game.team2) ) {
-        toast({
-          variant: 'destructive',
-          title: 'Game Full',
-          description: 'This game already has two teams.',
-        });
-        setIsSubmitting(false);
-        return;
-      }
-
-
-      // Update game state locally before redirect
-      const updatedGame: Game = { ...game };
-      // Initialize team with 0 score
-      updatedGame[teamSlot] = { name: values.teamName, score: 0 };
-      updatedGame.lastActivityAt = new Date().toISOString();
+      const updateData: any = {
+        [`${teamSlot}`]: { name: values.teamName, score: 0 },
+        lastActivityAt: serverTimestamp(),
+      };
       
-      // Only start the game if the SECOND team is joining
-      if (teamSlot === 'team2' && updatedGame.team1) {
-          updatedGame.status = 'in_progress';
+      // If the SECOND team is joining, start the game
+      if (teamSlot === 'team2' && game.team1) {
+          updateData.status = 'in_progress';
       }
+      
+      await updateDoc(gameDocRef, updateData);
 
-      localStorage.setItem(`game-${gameId}`, JSON.stringify(updatedGame));
+      // Store team assignment for this browser session
       localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: teamSlot }));
-
-      // Redirect via router, as server actions are tricky with local storage
-      window.location.href = `/game/${gameId.toUpperCase()}?team=${teamSlot}`;
+      
+      router.push(`/game/${gameId.toUpperCase()}`);
 
     } catch (error) {
       if (error instanceof Error) {
@@ -122,8 +117,6 @@ export default function JoinGameForm() {
           description: error.message,
         });
       }
-    } finally {
-      // This might not be reached if redirect is successful
       setIsSubmitting(false);
     }
   }

@@ -11,6 +11,8 @@ import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useFirestore } from '@/firebase';
+import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 
 interface AnswerGridProps {
   game: Game;
@@ -29,6 +31,7 @@ function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: stri
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const firestore = useFirestore();
   const letterQuestion = currentRound.letterQuestions[letter.toUpperCase()];
 
   const form = useForm<z.infer<typeof letterAnswerSchema>>({
@@ -39,40 +42,45 @@ function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: stri
   if (!letterQuestion) return null;
 
   const handleLetterSubmit = async (values: z.infer<typeof letterAnswerSchema>) => {
-    if (!playerTeam) {
-        toast({ variant: "destructive", title: "You are a spectator!", description: "You cannot interact with the game." });
+    if (!playerTeam || !firestore) {
+        toast({ variant: "destructive", title: "You are a spectator or something went wrong!", description: "You cannot interact with the game." });
         return;
     }
     
     setIsSubmitting(true);
     try {
-        const gameJSON = localStorage.getItem(`game-${game.id}`);
-        if (!gameJSON) throw new Error("Game data not found in storage.");
-        let currentGame: Game = JSON.parse(gameJSON);
-        const round = currentGame.rounds[currentGame.currentRoundIndex];
-        const team = currentGame[playerTeam];
-
-        if (!round) throw new Error("Current round data not found.");
-        if (!team) throw new Error("Your team data was not found.");
-
+        const gameDocRef = doc(firestore, 'games', game.id);
+        
         const isCorrect = letterQuestion.answer.toLowerCase() === values.answer.toLowerCase();
+        
+        // This is tricky. We need to read the latest state before writing.
+        // For simplicity, we assume the `game` prop is reasonably up-to-date.
+        const currentTeam = game[playerTeam];
+        const currentRoundState = game.rounds[game.currentRoundIndex];
+        const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
+        const teamRevealedLetters = currentRoundState[revealedLettersKey] || [];
+        
+        if (!currentTeam) throw new Error("Your team data was not found.");
 
         if (isCorrect) {
-            const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
-            
-            // Add letter to team's specific revealed letters for this round
-            if (!round[revealedLettersKey].includes(letter.toUpperCase())) {
-                round[revealedLettersKey].push(letter.toUpperCase());
-                team.score += LETTER_REVEAL_REWARD; // Add points
+            if (!teamRevealedLetters.includes(letter.toUpperCase())) {
+                const newRevealedLetters = [...teamRevealedLetters, letter.toUpperCase()];
+                const newScore = currentTeam.score + LETTER_REVEAL_REWARD;
+
+                const updatePath = `rounds.${game.currentRoundIndex}.${revealedLettersKey}`;
+                const teamScorePath = `${playerTeam}.score`;
+
+                await updateDoc(gameDocRef, {
+                    [updatePath]: newRevealedLetters,
+                    [teamScorePath]: newScore,
+                    lastActivityAt: serverTimestamp()
+                });
+
                 toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! You earned ${LETTER_REVEAL_REWARD} points.`});
+                setOpen(false);
             } else {
                 toast({ title: "Already Revealed", description: `You have already revealed this letter.`});
             }
-
-            currentGame.lastActivityAt = new Date().toISOString();
-            localStorage.setItem(`game-${game.id}`, JSON.stringify(currentGame));
-            setOpen(false);
-
         } else {
             toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. Try again." });
         }
@@ -129,10 +137,10 @@ function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: stri
 export default function AnswerGrid({ game, currentRound, playerTeam }: AnswerGridProps) {
   const answerChars = currentRound.mainAnswer.split('');
   
-  // Combine both teams' revealed letters for spectators, but only own team's for players
+  // For players, show only their revealed letters. For spectators, show all revealed letters.
   const revealedLetters = playerTeam 
-    ? (playerTeam === 'team1' ? currentRound.team1RevealedLetters : currentRound.team2RevealedLetters)
-    : [...new Set([...currentRound.team1RevealedLetters, ...currentRound.team2RevealedLetters])];
+    ? (currentRound[playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters'] || [])
+    : [...new Set([...(currentRound.team1RevealedLetters || []), ...(currentRound.team2RevealedLetters || [])])];
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">

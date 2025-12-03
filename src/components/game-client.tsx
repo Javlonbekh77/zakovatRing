@@ -17,6 +17,8 @@ import { Button } from './ui/button';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Badge } from './ui/badge';
+import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { doc } from 'firebase/firestore';
 
 interface GameClientProps {
   gameId: string;
@@ -82,7 +84,7 @@ function SpectatorView({ game }: { game: Game }) {
               </div>
               <CardDescription>{round.mainQuestion}</CardDescription>
             </CardHeader>
-            {round.winner && (
+            {round.winner && game[round.winner] && (
               <CardFooter>
                  <div className='text-sm text-muted-foreground flex items-center'>
                    <Award className='mr-2 h-4 w-4 text-yellow-500' />
@@ -103,71 +105,47 @@ function SpectatorView({ game }: { game: Game }) {
 }
 
 export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
-  const [game, setGame] = useState<Game | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const searchParams = useSearchParams();
+  const firestore = useFirestore();
 
-  const loadGameFromStorage = useCallback(() => {
-    try {
-      const gameJSON = localStorage.getItem(`game-${gameId}`);
-      if (gameJSON) {
-        setGame(JSON.parse(gameJSON));
-      } else {
-        setError('Game not found in local storage. It might have been deleted or never created on this device.');
-        setGame(null);
-      }
-    } catch (e) {
-      setError("Failed to load game data. It might be corrupted.");
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, [gameId]);
+  const gameDocRef = useMemoFirebase(() => {
+    if (!firestore || !gameId) return null;
+    return doc(firestore, 'games', gameId);
+  }, [firestore, gameId]);
 
+  const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
 
   useEffect(() => {
-    // Spectator mode has no assigned team
-    if (assignedTeam === undefined && !window.location.pathname.includes('/spectate')) {
-      const teamFromUrl = searchParams.get('team') as 'team1' | 'team2' | null;
-      let storedTeamInfo = null;
+    const teamFromUrl = searchParams.get('team') as 'team1' | 'team2' | null;
+    let storedTeamInfo = null;
 
-      try {
-        const item = localStorage.getItem(`zakovat-game-${gameId}`);
-        if (item) {
-          storedTeamInfo = JSON.parse(item);
-        }
-      } catch (e) {
-        console.error('Could not parse team info from localStorage', e);
+    try {
+      const item = localStorage.getItem(`zakovat-game-${gameId}`);
+      if (item) {
+        storedTeamInfo = JSON.parse(item);
       }
-      
-      const teamToSet = assignedTeam || teamFromUrl || storedTeamInfo?.team || null;
+    } catch (e) {
+      console.error('Could not parse team info from localStorage', e);
+    }
+    
+    const teamToSet = assignedTeam || teamFromUrl || storedTeamInfo?.team || null;
+
+    if (!window.location.pathname.includes('/spectate')) {
       setPlayerTeam(teamToSet);
-
-      if (teamToSet) {
-        try {
-          localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: teamToSet }));
-        } catch (e) {
-          console.error('Could not write team info to localStorage', e);
-        }
-      }
-    } else if (assignedTeam) {
-        setPlayerTeam(assignedTeam);
     }
 
+    if (teamToSet && !assignedTeam && !teamFromUrl) {
+       // Persist team in URL for reloads if not already there
+       const newUrl = `${window.location.pathname}?team=${teamToSet}`;
+       window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
+    }
+    
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, searchParams, assignedTeam]);
 
-  useEffect(() => {
-    loadGameFromStorage();
 
-    const interval = setInterval(loadGameFromStorage, 1000);
-
-    return () => clearInterval(interval);
-  }, [gameId, loadGameFromStorage]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex flex-col items-center gap-4 text-lg">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -177,7 +155,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
 
   if (error) {
-    return <Card className="w-full max-w-md"><CardHeader><CardTitle>Error</CardTitle></CardHeader><CardContent>{error}</CardContent></Card>;
+    return <Card className="w-full max-w-md"><CardHeader><CardTitle>Error</CardTitle></CardHeader><CardContent>{error.message}</CardContent></Card>;
   }
 
   if (!game) {

@@ -23,6 +23,10 @@ import React, { useState, useEffect } from 'react';
 import { Game, LetterQuestion, Round } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
+import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
+import { useFirestore } from '@/firebase';
+import { FirestorePermissionError } from '@/firebase/errors';
+import { errorEmitter } from '@/firebase/error-emitter';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
@@ -78,8 +82,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
         }));
 
         replace(newFields);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mainAnswer, replace]);
+    }, [mainAnswer, replace, fields]);
 
     return (
         <Card>
@@ -135,6 +138,7 @@ export default function CreateGameForm() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
     const router = useRouter();
+    const firestore = useFirestore();
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -173,20 +177,31 @@ export default function CreateGameForm() {
                 gameRounds[0].status = 'in_progress';
             }
 
-            const gameData: Game = {
+            const gameDocRef = doc(firestore, 'games', gameId);
+
+            const gameData: Omit<Game, 'createdAt' | 'lastActivityAt'> & { createdAt: any, lastActivityAt: any } = {
                 id: gameId,
                 rounds: gameRounds,
                 currentRoundIndex: 0,
                 status: 'lobby',
-                createdAt: new Date().toISOString(),
-                lastActivityAt: new Date().toISOString(),
+                createdAt: serverTimestamp(),
+                lastActivityAt: serverTimestamp(),
             };
 
-            localStorage.setItem(`game-${gameId}`, JSON.stringify(gameData));
+            await setDoc(gameDocRef, gameData).catch(error => {
+                 errorEmitter.emit(
+                    'permission-error',
+                    new FirestorePermissionError({
+                        path: gameDocRef.path,
+                        operation: 'create',
+                        requestResourceData: gameData
+                    })
+                )
+            });
 
             toast({
-                title: 'Game Created Locally!',
-                description: `Game with code ${gameId} has been saved in your browser.`,
+                title: 'Game Created!',
+                description: `Game with code ${gameId} has been created.`,
             });
 
             router.push(`/admin/created/${gameId}`);
