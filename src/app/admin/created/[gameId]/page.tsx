@@ -12,6 +12,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { CheckCircle, Clipboard, Home } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
 export default function GameCreatedPage({
   params,
@@ -19,8 +20,14 @@ export default function GameCreatedPage({
   params: { gameId: string };
 }) {
   const { toast } = useToast();
+  const [joinUrl, setJoinUrl] = useState('');
   const gameId = params.gameId;
-  const joinUrl = typeof window !== 'undefined' ? `${window.location.origin}/join` : '';
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setJoinUrl(`${window.location.origin}/join`);
+    }
+  }, []);
 
   const copyToClipboard = () => {
     const textToCopy = `Game Code: ${gameId}`;
@@ -59,7 +66,11 @@ export default function GameCreatedPage({
             </Button>
           </div>
            <CardDescription>
-            Players can join at: <Link href="/join" className='text-primary underline'>{joinUrl}</Link>
+            {joinUrl && (
+              <>
+                Players can join at: <Link href="/join" className='text-primary underline'>{joinUrl}</Link>
+              </>
+            )}
           </CardDescription>
         </CardContent>
         <CardFooter>
