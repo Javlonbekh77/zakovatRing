@@ -31,16 +31,19 @@ export async function createGame(values: z.infer<typeof formSchema>) {
   const validatedFields = formSchema.safeParse(values);
 
   if (!validatedFields.success) {
-    throw new Error('Invalid form data.');
+    // This should ideally not be reached if client-side validation is working
+    throw new Error('Invalid form data submitted.');
   }
 
   const { mainQuestion, mainAnswer, letterQuestions } = validatedFields.data;
   
-  const uniqueLetters = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))];
-  if (uniqueLetters.length !== letterQuestions.length) {
-    throw new Error('Please provide a question and answer for all unique letters in the main answer.');
-  }
+  // Server-side validation to ensure all unique letters have a corresponding question.
+  const uniqueLettersInAnswer = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))];
+  const lettersWithQuestions = new Set(letterQuestions.map(q => q.letter.toUpperCase()));
 
+  if (uniqueLettersInAnswer.length !== letterQuestions.length || !uniqueLettersInAnswer.every(letter => lettersWithQuestions.has(letter))) {
+    throw new Error('Please provide a valid question and answer for every unique letter in the main answer.');
+  }
 
   const gameId = generateGameCode(4);
 
@@ -67,9 +70,11 @@ export async function createGame(values: z.infer<typeof formSchema>) {
   try {
     await setDoc(doc(db, 'games', gameId), gameData);
   } catch (error) {
-    console.error('Error creating game:', error);
-    throw new Error('Could not create game in database.');
+    console.error('Error creating game in Firestore:', error);
+    // Propagate a more user-friendly error
+    throw new Error('Could not create the game in the database. Please try again later.');
   }
 
+  // Redirect on success
   redirect(`/admin/created/${gameId}`);
 }

@@ -58,36 +58,43 @@ export default function CreateGameForm() {
     name: 'letterQuestions',
   });
 
-  const mainAnswer = form.watch('mainAnswer');
+  const mainAnswerValue = form.watch('mainAnswer');
 
   useEffect(() => {
-    const uniqueLetters = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))].sort();
-    
-    const currentFields = form.getValues('letterQuestions');
-    const newFields = uniqueLetters.map(letter => {
-      const existingField = currentFields.find(f => f.letter === letter);
-      return existingField || { letter, question: '', answer: '' };
-    });
+    const uniqueLetters = [...new Set(mainAnswerValue.toUpperCase().replace(/[^A-Z]/g, ''))].sort();
+    const existingFields = form.getValues('letterQuestions');
 
-    // Only replace if the fields have actually changed
-    if (JSON.stringify(newFields.map(f => f.letter)) !== JSON.stringify(fields.map(f => f.letter))) {
+    const newFields = uniqueLetters.map(letter => {
+      const existingField = existingFields.find(f => f.letter === letter);
+      return existingField ? existingField : { letter, question: '', answer: '' };
+    });
+    
+    // Only update if the letters themselves have changed, to avoid infinite loops and unnecessary re-renders.
+    const currentLetters = fields.map(f => f.letter).join('');
+    const newLetters = newFields.map(f => f.letter).join('');
+
+    if (currentLetters !== newLetters) {
       replace(newFields);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainAnswer]);
-
+  }, [mainAnswerValue, replace, fields, form]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
     try {
       await createGame(values);
-      // On success, the action redirects.
+      // On success, the action redirects, so no need to do anything here.
     } catch (error) {
       if (error instanceof Error) {
         toast({
           variant: 'destructive',
           title: 'Error Creating Game',
           description: error.message,
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'An unknown error occurred',
+          description: 'Please try again.',
         });
       }
       setIsSubmitting(false);
