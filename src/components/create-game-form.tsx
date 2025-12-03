@@ -14,14 +14,13 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { createGame } from '@/app/join/actions'; // This was incorrect, fixed below
 import { Loader2, Wand } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect } from 'react';
-import { useDebouncedCallback } from 'use-debounce';
+import { createGame } from '@/app/admin/actions';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
@@ -58,29 +57,28 @@ export default function CreateGameForm() {
 
   const mainAnswer = form.watch('mainAnswer');
 
-  const debouncedUpdateLetterFields = useDebouncedCallback((answer: string) => {
-    const uniqueLetters = [...new Set(answer.replace(/\s/g, '').split(''))];
-    const existingLetters = fields.map(f => f.letter);
-    
-    const newFields = uniqueLetters.map(letter => {
-        const existingField = fields.find(f => f.letter === letter);
-        return existingField || { letter, question: '', answer: '' };
-    });
-
-    replace(newFields);
-  }, 500);
-
-  const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
+    const handler = setTimeout(() => {
+      const uniqueLetters = [...new Set(mainAnswer.replace(/\s/g, '').split(''))];
+      const existingLetterData = fields.reduce((acc, field) => {
+        acc[field.letter] = { question: field.question, answer: field.answer };
+        return acc;
+      }, {} as Record<string, { question: string; answer: string }>);
 
-  useEffect(() => {
-    if (isMounted) {
-      debouncedUpdateLetterFields(mainAnswer);
-    }
+      const newFields = uniqueLetters.map(letter => ({
+        letter,
+        question: existingLetterData[letter]?.question || '',
+        answer: existingLetterData[letter]?.answer || '',
+      }));
+
+      replace(newFields);
+    }, 500); // 500ms delay
+
+    return () => {
+      clearTimeout(handler);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainAnswer, isMounted]);
+  }, [mainAnswer, replace]);
 
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -95,9 +93,7 @@ export default function CreateGameForm() {
     });
 
     try {
-      // Corrected the action import path
-      const createGameAction = (await import('@/app/admin/actions')).createGame;
-      const result = await createGameAction(formData);
+      const result = await createGame(formData);
       if (result?.error) {
         toast({
           variant: 'destructive',
