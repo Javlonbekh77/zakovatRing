@@ -35,6 +35,12 @@ export async function createGame(values: z.infer<typeof formSchema>) {
   }
 
   const { mainQuestion, mainAnswer, letterQuestions } = validatedFields.data;
+  
+  const uniqueLetters = [...new Set(mainAnswer.toUpperCase().replace(/[^A-Z]/g, ''))];
+  if (uniqueLetters.length !== letterQuestions.length) {
+    throw new Error('Please provide a question and answer for all unique letters in the main answer.');
+  }
+
 
   const gameId = generateGameCode(4);
 
