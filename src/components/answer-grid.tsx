@@ -21,6 +21,9 @@ const letterAnswerSchema = z.object({
   answer: z.string().min(1, 'Answer is required.'),
 });
 
+// Cost to reveal a letter
+const LETTER_REVEAL_COST = 5;
+
 function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game; playerTeam: 'team1' | 'team2' | null }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,9 +38,9 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
   if (!letterQuestion) return null;
 
   const handleLetterSubmit = async (values: z.infer<typeof letterAnswerSchema>) => {
-    if (!playerTeam || game.currentTurn !== playerTeam) {
-      toast({ variant: "destructive", title: "Not your turn!", description: "Wait for the other team to make a move." });
-      return;
+    if (!playerTeam) {
+        toast({ variant: "destructive", title: "You are a spectator!", description: "You cannot interact with the game." });
+        return;
     }
     
     setIsSubmitting(true);
@@ -50,20 +53,26 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
         let updatedGame: Game;
 
         if (isCorrect) {
+            const team = currentGame[playerTeam];
+            if (!team) throw new Error("Your team data was not found.");
+
+            // Add letter to team's specific revealed letters and deduct points
+            const updatedTeam = {
+                ...team,
+                revealedLetters: [...team.revealedLetters, letter.toUpperCase()],
+                score: team.score - LETTER_REVEAL_COST,
+            };
+
             updatedGame = {
                 ...currentGame,
-                revealedLetters: [...currentGame.revealedLetters, letter.toUpperCase()],
+                [playerTeam]: updatedTeam,
                 lastActivityAt: new Date().toISOString(),
-                // Turn does not change on correct letter answer
             };
-            toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' has been revealed.`});
+            toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! It cost ${LETTER_REVEAL_COST} points.`});
         } else {
-            updatedGame = {
-                ...currentGame,
-                lastActivityAt: new Date().toISOString(),
-                currentTurn: playerTeam === 'team1' ? 'team2' : 'team1',
-            };
-            toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. The turn passes to the other team." });
+            // No changes to game state on incorrect answer, just a notification
+            updatedGame = currentGame;
+            toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. Try again." });
         }
         
         localStorage.setItem(`game-${game.id}`, JSON.stringify(updatedGame));
@@ -79,12 +88,10 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
     }
   };
 
-  const isMyTurn = playerTeam === game.currentTurn;
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" aria-label={`Reveal letter ${letter}`}>
+        <button disabled={!playerTeam} className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Reveal letter ${letter}`}>
           ?
         </button>
       </DialogTrigger>
@@ -109,11 +116,10 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={isSubmitting || !playerTeam || !isMyTurn} className="w-full">
+            <Button type="submit" disabled={isSubmitting || !playerTeam} className="w-full">
               {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
               Submit
             </Button>
-            {!isMyTurn && <p className='text-xs text-center text-muted-foreground mt-1'>It's not your turn.</p>}
           </form>
         </Form>
       </DialogContent>
@@ -123,6 +129,11 @@ function LetterDialog({ letter, game, playerTeam }: { letter: string; game: Game
 
 export default function AnswerGrid({ game, playerTeam }: AnswerGridProps) {
   const answerChars = game.mainAnswer.split('');
+  
+  // Determine which set of revealed letters to use
+  const revealedLetters = playerTeam && game[playerTeam] 
+    ? game[playerTeam]!.revealedLetters 
+    : [];
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
@@ -131,7 +142,7 @@ export default function AnswerGrid({ game, playerTeam }: AnswerGridProps) {
           return <div key={index} className="w-8" />;
         }
 
-        const isRevealed = game.revealedLetters.includes(char.toUpperCase());
+        const isRevealed = revealedLetters.includes(char.toUpperCase());
 
         return (
           <div key={index}>

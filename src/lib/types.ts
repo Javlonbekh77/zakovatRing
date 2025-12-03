@@ -4,6 +4,7 @@ import type { Timestamp } from 'firebase/firestore';
 export interface Team {
   name: string;
   score: number;
+  revealedLetters: string[]; // Each team now has their own revealed letters
   lastAnswerCorrect?: boolean | null;
 }
 
@@ -19,7 +20,7 @@ export interface Game {
   mainQuestion: string;
   mainAnswer: string;
   letterQuestions: Record<string, LetterQuestion>;
-  revealedLetters: string[];
+  // revealedLetters is now moved to the Team interface
   status: GameStatus;
   team1?: Team;
   team2?: Team;
@@ -28,5 +29,5 @@ export interface Game {
   gameStartedAt?: Timestamp | string;
   lastActivityAt: Timestamp | string;
   currentPoints: number;
-  currentTurn?: 'team1' | 'team2';
+  // currentTurn is removed as teams play simultaneously
 }

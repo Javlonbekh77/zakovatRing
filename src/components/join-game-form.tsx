@@ -99,14 +99,14 @@ export default function JoinGameForm() {
 
       // Update game state locally before redirect
       const updatedGame: Game = { ...game };
-      updatedGame[teamSlot] = { name: values.teamName, score: 0 };
+      // Initialize team with score and empty revealedLetters array
+      updatedGame[teamSlot] = { name: values.teamName, score: 0, revealedLetters: [] };
       updatedGame.lastActivityAt = new Date().toISOString();
       
       // Only start the game if the SECOND team is joining
       if (teamSlot === 'team2' && updatedGame.team1) {
           updatedGame.status = 'in_progress';
           updatedGame.gameStartedAt = new Date().toISOString();
-          updatedGame.currentTurn = 'team1';
       }
 
       localStorage.setItem(`game-${gameId}`, JSON.stringify(updatedGame));

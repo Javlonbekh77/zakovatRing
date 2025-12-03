@@ -38,17 +38,34 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
   useEffect(() => {
     if (game.status !== 'in_progress') return;
 
-    setPoints(game.currentPoints);
+    // Persist points reduction in local storage for one client to manage
+    const gameJSON = localStorage.getItem(`game-${game.id}`);
+    if (!gameJSON) return;
+    const currentGame: Game = JSON.parse(gameJSON);
 
     const interval = setInterval(() => {
-      setPoints((prevPoints) => {
-        const newPoints = prevPoints - 1;
-        return newPoints > 0 ? newPoints : 0;
-      });
+        const gameDataStr = localStorage.getItem(`game-${game.id}`);
+        if(gameDataStr) {
+            const gameData: Game = JSON.parse(gameDataStr);
+            if(gameData.status !== 'in_progress') {
+                clearInterval(interval);
+                return;
+            }
+            const newPoints = Math.max(0, gameData.currentPoints - 1);
+            gameData.currentPoints = newPoints;
+            localStorage.setItem(`game-${game.id}`, JSON.stringify(gameData));
+        }
     }, 1000); // Decrease 1 point every second
 
     return () => clearInterval(interval);
-  }, [game.status, game.currentPoints]);
+  }, [game.id, game.status]);
+
+
+  // Effect to update local component state for UI from game state
+   useEffect(() => {
+    setPoints(game.currentPoints);
+  }, [game.currentPoints]);
+
 
   const handleAnswerSubmit = async (values: z.infer<typeof answerSchema>) => {
     if (!playerTeam) {
@@ -61,29 +78,39 @@ export default function GameArea({ game, playerTeam }: GameAreaProps) {
       const gameJSON = localStorage.getItem(`game-${game.id}`);
       if (!gameJSON) throw new Error("Game data not found in storage.");
       const currentGame: Game = JSON.parse(gameJSON);
+      
+      // Ensure game is still in progress
+      if (currentGame.status !== 'in_progress') {
+        toast({ title: "Game Over", description: "This game has already finished." });
+        setIsSubmitting(false);
+        return;
+      }
 
       const isCorrect = currentGame.mainAnswer.toLowerCase() === values.answer.toLowerCase();
       let updatedGame: Game;
 
       if (isCorrect) {
-          const currentScore = currentGame[playerTeam]?.score || 0;
+          const currentTeamState = currentGame[playerTeam];
+          if (!currentTeamState) throw new Error("Team data is missing");
+          
           updatedGame = {
               ...currentGame,
               status: 'finished',
               winner: playerTeam,
-              [`${playerTeam}`]: { ...currentGame[playerTeam]!, score: currentScore + points },
+              [playerTeam]: { ...currentTeamState, score: currentTeamState.score + currentGame.currentPoints },
               lastActivityAt: new Date().toISOString(),
           };
+           toast({
+            title: 'You got it!',
+            description: `Your team wins the round and gets ${currentGame.currentPoints} points.`,
+          });
       } else {
-          updatedGame = {
-              ...currentGame,
-              currentTurn: playerTeam === 'team1' ? 'team2' : 'team1', // Turn still passes
-              lastActivityAt: new Date().toISOString(),
-          };
+          // No turn change, just a toast notification for the submitting team.
+          updatedGame = currentGame;
           toast({
             variant: 'destructive',
             title: 'Incorrect Answer',
-            description: 'That was not the correct answer. The turn passes to the other team.',
+            description: 'That was not the correct answer. Keep trying!',
           });
       }
 

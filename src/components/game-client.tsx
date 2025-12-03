@@ -166,7 +166,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
       <div className="text-center p-2 bg-muted text-muted-foreground rounded-md">
         Game Code: <strong className="font-mono">{game.id}</strong>
       </div>
-      <Scoreboard team1={game.team1} team2={game.team2} currentTurn={game.currentTurn} />
+      <Scoreboard team1={game.team1} team2={game.team2} />
       <GameArea game={game} playerTeam={playerTeam} />
     </div>
   );

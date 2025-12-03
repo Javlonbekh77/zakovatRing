@@ -20,7 +20,6 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { createGameOnClient } from '@/app/admin/actions';
 import { Game, LetterQuestion } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 
@@ -126,7 +125,6 @@ export default function CreateGameForm() {
             mainQuestion: values.mainQuestion,
             mainAnswer: values.mainAnswer,
             letterQuestions: letterQuestionsMap,
-            revealedLetters: [],
             status: 'lobby',
             createdAt: new Date().toISOString(),
             lastActivityAt: new Date().toISOString(),
