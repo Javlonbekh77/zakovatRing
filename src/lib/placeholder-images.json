@@ -1,3 +1,16 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "logo",
+      "description": "Zakovat Ring Logo",
+      "imageUrl": "https://images.unsplash.com/photo-1727529882479-9d9b6328946d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxicmFpbiUyMGxvZ298ZW58MHx8fHwxNzY0NzUzNjY5fDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "brain logo"
+    },
+    {
+      "id": "hero",
+      "description": "People playing a quiz game",
+      "imageUrl": "https://images.unsplash.com/photo-1539628399213-d6aa89c93074?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxxdWl6JTIwZ2FtZXxlbnwwfHx8fDE3NjQ3NzM1Nzd8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "quiz game"
+    }
+  ]
 }
