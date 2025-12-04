@@ -16,8 +16,7 @@ import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { Loader2, LogIn } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Game } from '@/lib/types';
-import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { useFirestore, useUser } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { Skeleton } from './ui/skeleton';
@@ -50,8 +49,8 @@ export default function JoinGameForm() {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
-    if (!firestore || !user) {
-        toast({ variant: 'destructive', title: 'Error', description: 'You must be signed in to join a game.' });
+    if (!firestore) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Firestore is not available.' });
         setIsSubmitting(false);
         return
     }
@@ -71,51 +70,23 @@ export default function JoinGameForm() {
         return;
       }
       
-      const game = gameSnap.data() as Game;
+      const game = gameSnap.data();
 
-      if (game.status !== 'lobby') {
+      // Spectators can always go to the spectate page
+      // But for joining, we do a preliminary check
+      if (game.status !== 'lobby' && (game.team1 && game.team2)) {
         toast({
           variant: 'destructive',
-          title: 'Game Not Joinable',
-          description: 'This game is already in progress or has finished.',
-        });
-        setIsSubmitting(false);
-        return;
-      }
-
-      let teamSlot: 'team1' | 'team2' | null = null;
-      if (!game.team1) {
-        teamSlot = 'team1';
-      } else if (!game.team2) {
-        teamSlot = 'team2';
-      }
-
-      if (!teamSlot) {
-        toast({
-          variant: 'destructive',
-          title: 'Game Full',
-          description: 'This game already has two teams.',
+          title: 'Game Full or In Progress',
+          description: 'This game already has two teams or has started. You can spectate instead.',
         });
         setIsSubmitting(false);
         return;
       }
       
-      const updateData: any = {
-        [`${teamSlot}`]: { name: values.teamName, score: 0 },
-        lastActivityAt: serverTimestamp(),
-      };
-      
-      // If the SECOND team is joining, start the game
-      if (teamSlot === 'team2' && game.team1) {
-          updateData.status = 'in_progress';
-      }
-      
-      await updateDoc(gameDocRef, updateData);
-
-      // Store team assignment for this browser session
-      localStorage.setItem(`zakovat-game-${gameId}`, JSON.stringify({ team: teamSlot }));
-      
-      router.push(`/game/${gameId.toUpperCase()}`);
+      // Redirect to the game page with team name as a query parameter.
+      // The game page will handle the logic of assigning the team slot.
+      router.push(`/game/${gameId.toUpperCase()}?teamName=${encodeURIComponent(values.teamName)}`);
 
     } catch (error) {
       if (error instanceof Error) {

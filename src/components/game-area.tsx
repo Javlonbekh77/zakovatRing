@@ -45,7 +45,6 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
     setIsSubmitting(true);
     
     try {
-      // The actual logic is now in game-client.tsx
       await onMainAnswerSubmit(values.answer);
       form.reset();
     } catch (error) {
@@ -95,7 +94,7 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                         render={({ field }) => (
                             <FormItem>
                             <FormControl>
-                                <Input placeholder="Type your final answer" {...field} />
+                                <Input placeholder="Type your final answer" {...field} disabled={isSubmitting || currentRound.status !== 'in_progress'} />
                             </FormControl>
                             <FormMessage />
                             </FormItem>
