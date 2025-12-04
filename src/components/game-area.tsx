@@ -78,9 +78,7 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-xl md:text-2xl leading-relaxed bg-primary/5 p-4 rounded-md">
-                        {currentRound.mainQuestion}
-                    </p>
+                     <AnswerGrid game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} />
                 </CardContent>
             </Card>
             <Card className="shadow-lg">
@@ -115,17 +113,6 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                 </CardContent>
             </Card>
         </div>
-
-        <Card className="lg:col-span-3 shadow-md">
-            <CardHeader>
-                <CardTitle className='text-center text-xl font-headline'>
-                    Reveal Letters
-                </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6">
-                <AnswerGrid game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} />
-            </CardContent>
-        </Card>
     </div>
   );
 }

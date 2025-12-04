@@ -41,7 +41,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 
@@ -226,8 +225,6 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
     );
   }
 
-  const currentRound = game.rounds[game.currentRoundIndex];
-
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
       <Card className="shadow-xl">
@@ -408,6 +405,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   useEffect(() => {
     if (currentRound) {
+        // When round changes, reset local points to the round's starting points
         setLocalCurrentPoints(currentRound.currentPoints);
     }
 
@@ -415,6 +413,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         return; 
     }
     
+    // This timer now only affects the local state, not Firestore.
     const timer = setInterval(() => {
         setLocalCurrentPoints(prevPoints => Math.max(0, prevPoints - POINTS_DECREMENT_AMOUNT));
     }, POINTS_DECREMENT_INTERVAL);
@@ -499,17 +498,19 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
           if (isCorrect) {
+            // Use the LOCAL points when the answer was submitted
             const pointsFromRound = localCurrentPoints;
             const finalTeamScore = (serverGame[playerTeam]?.score || 0) + pointsFromRound;
 
             const updateData: any = {
               [`rounds.${serverRoundIndex}.status`]: 'finished',
               [`rounds.${serverRoundIndex}.winner`]: playerTeam,
-              [`rounds.${serverRoundIndex}.currentPoints`]: pointsFromRound,
+              [`rounds.${serverRoundIndex}.currentPoints`]: pointsFromRound, // Save the final points for this round
               [`${playerTeam}.score`]: finalTeamScore,
               lastActivityAt: serverTimestamp(),
             };
 
+            // Move to next round or finish game
             if (serverRoundIndex < serverGame.rounds.length - 1) {
               const nextRoundIndex = serverRoundIndex + 1;
               updateData.currentRoundIndex = nextRoundIndex;
@@ -525,6 +526,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
               description: `Your team gets ${pointsFromRound} points.`,
             });
           } else {
+            // Only update score on incorrect answer
             const newScore =
               (serverGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
             transaction.update(gameDocRef, {
@@ -540,7 +542,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         });
       } catch (e) {
         if (e instanceof Error) {
-          toast({ variant: 'destructive', title: 'Error', description: e.message });
+          toast({ variant: 'destructive', title: 'Error submitting answer', description: e.message });
         }
       }
     },
@@ -708,65 +710,69 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
+  // This is the crucial check. If the game is in progress but we can't determine the current round
+  // (e.g., during the brief moment of a round transition), we show a loader instead of an error or a blank page.
   if (game.status === 'in_progress' && !currentRound) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          Loading round...
+          Loading next round...
         </div>
       </div>
     );
   }
   
   return (
-      <div className="w-full max-w-6xl mx-auto space-y-4">
-        <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
-          <span>
-            Game Code: <strong className="font-mono">{game.id}</strong>
-          </span>
-          <span>
-            Round:{' '}
-            <strong className="font-mono">
-              {game.currentRoundIndex + 1} / {game.rounds.length}
-            </strong>
-          </span>
-        </div>
-        <Scoreboard
-          team1={game.team1}
-          team2={game.team2}
-          playerTeam={playerTeam}
-        />
+    <div className="w-full max-w-6xl mx-auto space-y-4">
+      <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
+        <span>
+          Game Code: <strong className="font-mono">{game.id}</strong>
+        </span>
+        <span>
+          Round:{' '}
+          <strong className="font-mono">
+            {game.currentRoundIndex + 1} / {game.rounds.length}
+          </strong>
+        </span>
+      </div>
+      <Scoreboard
+        team1={game.team1}
+        team2={game.team2}
+        playerTeam={playerTeam}
+      />
+      {currentRound && (
         <GameArea
           game={game}
-          currentRound={currentRound!}
+          currentRound={currentRound}
           localCurrentPoints={localCurrentPoints}
           playerTeam={playerTeam}
           onLetterReveal={handleLetterReveal}
           onMainAnswerSubmit={handleMainAnswerSubmit}
         />
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" className="w-full">
-              <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This action cannot be undone. You will lose the game
-                immediately.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleForfeit}>
-                Yes, Forfeit
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    );
+      )}
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button variant="destructive" className="w-full">
+            <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. You will lose the game
+              immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleForfeit}>
+              Yes, Forfeit
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
 }
