@@ -48,7 +48,7 @@ import { useToast } from '@/hooks/use-toast';
 const POINTS_DECREMENT_INTERVAL = 5000; // 5 seconds
 const POINTS_DECREMENT_AMOUNT = 10; // 10 points
 const LETTER_REVEAL_REWARD = 10;
-const INCORRECT_ANSWER_PENALTY = 50;
+const INCORRECT_ANSWER_PENALTY = 20;
 
 
 function AdminControls({ game, user }: { game: Game; user: any }) {
@@ -848,7 +848,6 @@ export default function GameClient({ gameId }: GameClientProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {user?.uid === activeGame.creatorId && <AdminControls game={activeGame} user={user} />}
     </div>
   );
 }
