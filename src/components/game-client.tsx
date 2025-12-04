@@ -624,51 +624,54 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
      )
   }
 
-  // Fallback for unexpected states, including transitioning between rounds
-  if (gameStatus !== 'in_progress' || !currentRound) {
+  // This is the main "in_progress" render block.
+  // We check for `currentRound` to avoid errors during the brief moment
+  // between a round ending and the next one starting.
+  if (gameStatus === 'in_progress' && currentRound) {
     return (
-        <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-          <div className="flex flex-col items-center gap-4 text-lg">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            Loading game state...
-          </div>
+      <div className="w-full max-w-6xl mx-auto space-y-4">
+        <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
+          <span>Game Code: <strong className="font-mono">{game.id}</strong></span>
+          <span>Round: <strong className="font-mono">{game.currentRoundIndex + 1} / {game.rounds.length}</strong></span>
         </div>
-    )
-  }
-  
-  return (
-    <div className="w-full max-w-6xl mx-auto space-y-4">
-      <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
-        <span>Game Code: <strong className="font-mono">{game.id}</strong></span>
-        <span>Round: <strong className="font-mono">{game.currentRoundIndex + 1} / {game.rounds.length}</strong></span>
+        <Scoreboard team1={game.team1} team2={game.team2} playerTeam={playerTeam} />
+        <GameArea 
+          game={game} 
+          currentRound={currentRound} 
+          playerTeam={playerTeam} 
+          onLetterReveal={handleLetterReveal} 
+          onMainAnswerSubmit={handleMainAnswerSubmit}
+        />
+          <AlertDialog>
+              <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="w-full">
+                      <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
+                  </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                  <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                          This action cannot be undone. You will lose the game immediately.
+                      </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleForfeit}>Yes, Forfeit</AlertDialogAction>
+                  </AlertDialogFooter>
+              </AlertDialogContent>
+          </AlertDialog>
       </div>
-      <Scoreboard team1={game.team1} team2={game.team2} playerTeam={playerTeam} />
-      <GameArea 
-        game={game} 
-        currentRound={currentRound} 
-        playerTeam={playerTeam} 
-        onLetterReveal={handleLetterReveal} 
-        onMainAnswerSubmit={handleMainAnswerSubmit}
-      />
-        <AlertDialog>
-            <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="w-full">
-                    <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
-                </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This action cannot be undone. You will lose the game immediately.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleForfeit}>Yes, Forfeit</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+    );
+  }
+
+  // Fallback for unexpected states, including transitioning between rounds
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+      <div className="flex flex-col items-center gap-4 text-lg">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        Loading game state...
+      </div>
     </div>
   );
 }
