@@ -11,14 +11,14 @@ import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useFirestore } from '@/firebase';
-import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+
+const LETTER_REVEAL_REWARD = 10;
 
 interface AnswerGridProps {
   game: Game;
   currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
-  onLetterReveal: (letter: string) => void;
+  onLetterReveal: (letter: string, points: number) => void;
 }
 
 const letterAnswerSchema = z.object({
@@ -26,7 +26,7 @@ const letterAnswerSchema = z.object({
 });
 
 
-function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }: { letter: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letter: string) => void }) {
+function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }: { letter: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letter: string, points: number) => void }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -46,15 +46,18 @@ function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }
     }
     
     setIsSubmitting(true);
+    // Simulate a short delay to feel more responsive
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
     try {
-        const isCorrect = letterQuestion.answer.toLowerCase() === values.answer.toLowerCase();
+        const isCorrect = letterQuestion.answer.toLowerCase().trim() === values.answer.toLowerCase().trim();
         
         const teamRevealedLetters = currentRound[playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters'] || [];
 
         if (isCorrect) {
             if (!teamRevealedLetters.includes(letter.toUpperCase())) {
-                onLetterReveal(letter.toUpperCase());
-                toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! You earned points.`});
+                onLetterReveal(letter.toUpperCase(), LETTER_REVEAL_REWARD);
+                toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! You earned ${LETTER_REVEAL_REWARD} points.`});
                 setOpen(false);
             } else {
                 toast({ title: "Already Revealed", description: `You have already revealed this letter.`});
