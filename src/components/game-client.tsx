@@ -322,8 +322,9 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   useEffect(() => {
     if (game) {
       setLocalGameData(game);
+      // Initialize local points only when the round changes or game loads
       const round = game.rounds[game.currentRoundIndex];
-      if (round) {
+      if (round && (localGameData?.currentRoundIndex !== game.currentRoundIndex)) {
         setLocalPoints(round.currentPoints);
       }
     }
@@ -420,28 +421,18 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     setLocalGameData(prevData => {
         if (!prevData) return null;
         
-        const newGameData = { ...prevData };
-        const roundIndex = newGameData.currentRoundIndex;
-        const newRounds = [...newGameData.rounds];
-        const newCurrentRound = { ...newRounds[roundIndex] };
+        const newGameData = JSON.parse(JSON.stringify(prevData)); // Deep copy
         
-        const teamScoreKey = `${playerTeam}.score` as 'team1.score' | 'team2.score';
         const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
 
-        const newRevealedLetters = [...(newCurrentRound[revealedLettersKey] || []), letter];
-        const newTeam = { ...(newGameData[playerTeam]!) };
-        newTeam.score += LETTER_REVEAL_REWARD;
-
-        newRounds[roundIndex] = {
-            ...newCurrentRound,
-            [revealedLettersKey]: newRevealedLetters
-        };
+        const newRevealedLetters = [...(newGameData.rounds[newGameData.currentRoundIndex][revealedLettersKey] || []), letter];
+        newGameData.rounds[newGameData.currentRoundIndex][revealedLettersKey] = newRevealedLetters;
         
-        return {
-            ...newGameData,
-            rounds: newRounds,
-            [playerTeam]: newTeam,
-        };
+        if(newGameData[playerTeam]) {
+            newGameData[playerTeam]!.score += LETTER_REVEAL_REWARD;
+        }
+        
+        return newGameData;
     });
     
     toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! You earned ${LETTER_REVEAL_REWARD} points.` });
@@ -449,16 +440,16 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }, [playerTeam, localGameData, toast]);
 
   const handleMainAnswerSubmit = useCallback(async (answer: string) => {
-    if (!playerTeam || !localGameData || localPoints === null) {
+    if (!playerTeam || !localGameData || localPoints === null || !currentRound) {
       throw new Error("Game state is not ready for submission.");
     }
     
-    const isCorrect = currentRound?.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
+    const isCorrect = currentRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
     if (isCorrect) {
         if (!firestore || !gameDocRef) throw new Error("Database connection not found");
         
-        let finalTeamScore = localGameData[playerTeam]!.score + localPoints;
+        const finalTeamScore = localGameData[playerTeam]!.score + localPoints;
         
         await runTransaction(firestore, async (transaction) => {
             const gameSnap = await transaction.get(gameDocRef);
@@ -466,7 +457,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
             const serverGame = gameSnap.data() as Game;
 
-            // Prevent updating if round has already been won/finished
             if(serverGame.rounds[serverGame.currentRoundIndex].status !== 'in_progress') {
                  toast({ title: "Round Over", description: "This round has already finished." });
                  return;
@@ -477,9 +467,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
                 [`rounds.${serverGame.currentRoundIndex}.status`]: 'finished',
                 [`rounds.${serverGame.currentRoundIndex}.winner`]: playerTeam,
                 [`${playerTeam}.score`]: finalTeamScore,
-                 // Sync revealed letters on correct answer
-                'rounds.team1RevealedLetters': localGameData.rounds[serverGame.currentRoundIndex].team1RevealedLetters,
-                'rounds.team2RevealedLetters': localGameData.rounds[serverGame.currentRoundIndex].team2RevealedLetters,
             };
             
             if (serverGame.currentRoundIndex < serverGame.rounds.length - 1) {
@@ -498,18 +485,15 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         });
 
     } else {
-        // Handle incorrect answer locally
         setLocalGameData(prevData => {
             if (!prevData) return null;
 
-            const newGameData = { ...prevData };
-            const newTeam = { ...(newGameData[playerTeam]!) };
-            newTeam.score -= INCORRECT_ANSWER_PENALTY;
+            const newGameData = JSON.parse(JSON.stringify(prevData)); // Deep copy
+            if (newGameData[playerTeam]) {
+                newGameData[playerTeam]!.score -= INCORRECT_ANSWER_PENALTY;
+            }
 
-            return {
-                ...newGameData,
-                [playerTeam]: newTeam
-            };
+            return newGameData;
         });
 
         toast({
@@ -639,7 +623,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   
   if (gameStatus === 'paused') {
      return (
-        <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+        <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
           <div className="flex flex-col items-center gap-4 text-lg">
             <Pause className="h-12 w-12 text-primary" />
             Game is paused by the admin...
@@ -650,7 +634,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   if (gameStatus !== 'in_progress' || !currentRound) {
     return (
-        <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+        <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
           <div className="flex flex-col items-center gap-4 text-lg">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
             Loading game state...
@@ -696,3 +680,4 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     </div>
   );
 }
+
