@@ -290,6 +290,27 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }, [firestore, gameId]);
 
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
+
+   // CRITICAL: All hooks must be called at the top level of the component.
+   // Do not call hooks inside early returns.
+   const currentRound = useMemo(() => {
+    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
+      return null;
+    }
+    return game.rounds[game.currentRoundIndex];
+  }, [game]);
+  
+  const winner = useMemo(() => {
+     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
+    if (game.forfeitedBy) {
+        return game.forfeitedBy === 'team1' ? game.team2 : game.team1;
+    }
+    if (game.team1.score > game.team2.score) return game.team1;
+    if (game.team2.score > game.team1.score) return game.team2;
+    return null; // Draw
+  }, [game]);
+
+  const isSpectator = !playerTeam && typeof window !== 'undefined' && window.location.pathname.includes('/spectate');
   
   // This effect manages the points countdown timer.
   // It only runs for the game creator to prevent multiple timers.
@@ -311,7 +332,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           const currentGame = gameSnap.data() as Game;
           const currentRound = currentGame.rounds[currentGame.currentRoundIndex];
           
-          // Only decrement if the game and round are in progress
           if (currentGame.status !== 'in_progress' || currentRound.status !== 'in_progress') {
             return;
           }
@@ -324,10 +344,8 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
             lastActivityAt: serverTimestamp(),
           };
           
-          // If points run out, end the round
           if (newPoints <= 0) {
               updates[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished'; // Mark as finished
-              // Move to next round or end game
               if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
                   updates.currentRoundIndex = currentGame.currentRoundIndex + 1;
                   updates[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
@@ -344,8 +362,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }, POINTS_DECREMENT_INTERVAL);
   
     return () => clearInterval(timer);
-  // Important: depend only on game.status and creatorId to avoid resetting on every point change
-  }, [game?.status, game?.id, game?.creatorId, firestore, user, game?.currentRoundIndex, game?.rounds.length]);
+  }, [game?.status, game?.id, game?.creatorId, user, firestore, game?.currentRoundIndex, game?.rounds.length]);
 
 
   useEffect(() => {
@@ -363,7 +380,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     
     const teamToSet = assignedTeam || teamFromUrl || storedTeamInfo?.team || null;
 
-    if (!window.location.pathname.includes('/spectate')) {
+    if (typeof window !== 'undefined' && !window.location.pathname.includes('/spectate')) {
       setPlayerTeam(teamToSet);
     }
 
@@ -372,7 +389,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
        window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
     }
     
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, searchParams, assignedTeam]);
 
 
@@ -391,43 +407,20 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   if (!game) {
     return (
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Game not found</CardTitle>
-        </CardHeader>
-        <CardContent>
-          No game with ID <span className='font-mono bg-muted p-1 rounded'>{gameId}</span> was found. It may have been deleted.
-        </CardContent>
-      </Card>
+        <Card className="w-full max-w-md">
+            <CardHeader><CardTitle>Game not found</CardTitle></CardHeader>
+            <CardContent>
+                No game with ID <span className='font-mono bg-muted p-1 rounded'>{gameId}</span> was found. It may have been deleted.
+            </CardContent>
+        </Card>
     );
   }
   
-  const currentRound = useMemo(() => {
-    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
-      return null;
-    }
-    return game.rounds[game.currentRoundIndex];
-  }, [game]);
-  
-  const isSpectator = !playerTeam && window.location.pathname.includes('/spectate');
-
   // Render spectator-specific dashboard
   if (isSpectator) {
     return <SpectatorView game={game} user={user} />
   }
   
-  const getWinner = () => {
-    if (!game.team1 || !game.team2) return null;
-    if (game.forfeitedBy) {
-        return game.forfeitedBy === 'team1' ? game.team2 : game.team1;
-    }
-    if (game.team1.score > game.team2.score) return game.team1;
-    if (game.team2.score > game.team1.score) return game.team2;
-    return null; // Draw
-  }
-
-  const winner = getWinner();
-
   if (game.status === 'finished' || game.status === 'forfeited') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
@@ -496,7 +489,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
      return (
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          {game.status === 'paused' ? 'Game is paused by the admin...' : 'Loading next round...'}
+          {game.status === 'paused' ? 'Game is paused by the admin...' : 'Loading game state...'}
       </div>
      )
   }
