@@ -66,24 +66,26 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
       defaultValue: ""
     }) || '';
     
-    const { fields, replace } = useFieldArray({
+    const { fields, replace, unregister } = useFieldArray({
         control,
         name: `rounds.${roundIndex}.letterQuestions`
     });
 
     React.useEffect(() => {
-        // When mainAnswer changes, we need to regenerate the fields.
-        // First, unregister all fields for this array to avoid stale data
-        // during validation. This is crucial for dynamic arrays.
-        form.unregister(`rounds.${roundIndex}.letterQuestions`);
-
+        const currentValues = form.getValues(`rounds.${roundIndex}.letterQuestions`);
+        
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
-        const newFields = answerLetters.map(letter => ({
-            letter: letter.toUpperCase(),
-            question: '',
-            answer: ''
-        }));
+        const newFields = answerLetters.map((letter, index) => {
+            const existingField = Array.isArray(currentValues) && currentValues[index] && currentValues[index].letter === letter
+                ? currentValues[index]
+                : undefined;
+            return {
+                letter: letter.toUpperCase(),
+                question: existingField?.question || '',
+                answer: existingField?.answer || ''
+            };
+        });
 
         replace(newFields);
     }, [mainAnswer, replace, form, roundIndex]);
@@ -224,7 +226,7 @@ export default function CreateGameForm() {
                 // Make the import more flexible
                 const roundsData = jsonData.rounds?.map((round: any) => ({
                     mainQuestion: round.mainQuestion || '',
-                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase(),
+                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase().replace(/Т/g, 'T'),
                     letterQuestions: Array.isArray(round.letterQuestions) ? round.letterQuestions.map((lq: any) => ({
                         letter: lq.letter || '',
                         question: lq.question || '',
@@ -453,3 +455,5 @@ export default function CreateGameForm() {
         </Form>
     );
 }
+
+    

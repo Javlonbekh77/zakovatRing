@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
-import *s z from 'zod';
+import * as z from 'zod';
 import {
   Form,
   FormControl,
@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import React, from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { Game, Round, GameStatus, FormLetterQuestion } from '@/lib/types';
 import { useRouter, useParams } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -63,18 +63,20 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
     });
 
     React.useEffect(() => {
-        // When mainAnswer changes, we need to regenerate the fields.
-        // First, unregister all fields for this array to avoid stale data
-        // during validation. This is crucial for dynamic arrays.
-        form.unregister(`rounds.${roundIndex}.letterQuestions`);
-
+        const currentValues = form.getValues(`rounds.${roundIndex}.letterQuestions`);
+        
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
-        const newFields = answerLetters.map(letter => ({
-            letter: letter.toUpperCase(),
-            question: '',
-            answer: ''
-        }));
+        const newFields = answerLetters.map((letter, index) => {
+             const existingField = Array.isArray(currentValues) && currentValues[index] && currentValues[index].letter === letter
+                ? currentValues[index]
+                : undefined;
+            return {
+                letter: letter.toUpperCase(),
+                question: existingField?.question || '',
+                answer: existingField?.answer || ''
+            };
+        });
 
         replace(newFields);
     }, [mainAnswer, replace, form, roundIndex]);
@@ -247,7 +249,7 @@ export default function EditGamePage() {
                 // Make the import more flexible
                 const roundsData = jsonData.rounds?.map((round: any) => ({
                     mainQuestion: round.mainQuestion || '',
-                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase(),
+                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase().replace(/Т/g, 'T'),
                     letterQuestions: Array.isArray(round.letterQuestions) ? round.letterQuestions.map((lq: any) => ({
                         letter: lq.letter || '',
                         question: lq.question || '',
@@ -523,3 +525,5 @@ export default function EditGamePage() {
         </div>
     );
 }
+
+    
