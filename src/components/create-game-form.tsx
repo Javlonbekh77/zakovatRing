@@ -66,7 +66,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
       defaultValue: ""
     }) || '';
     
-    const { fields, replace, unregister } = useFieldArray({
+    const { fields, replace } = useFieldArray({
         control,
         name: `rounds.${roundIndex}.letterQuestions`
     });
@@ -77,9 +77,10 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
         const newFields = answerLetters.map((letter, index) => {
-            const existingField = Array.isArray(currentValues) && currentValues[index] && currentValues[index].letter === letter
+            const existingField = Array.isArray(currentValues) && currentValues[index]
                 ? currentValues[index]
                 : undefined;
+
             return {
                 letter: letter.toUpperCase(),
                 question: existingField?.question || '',
@@ -455,5 +456,3 @@ export default function CreateGameForm() {
         </Form>
     );
 }
-
-    
