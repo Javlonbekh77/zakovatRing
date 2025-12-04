@@ -20,7 +20,7 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, UnassignedLetterQuestion } from '@/lib/types';
+import { Game, Round, UnassignedLetterQuestion, AssignedLetterQuestion } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
@@ -75,17 +75,19 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
       name: `rounds.${roundIndex}.mainAnswer`,
     }) || '';
     
-    const uniqueLettersCount = new Set((mainAnswer).replace(/\s/g, '').split('').filter(Boolean)).size;
+    // Changed from unique letters to all letters
+    const answerLetters = (mainAnswer).replace(/\s/g, '').split('').filter(Boolean);
+    const lettersCount = answerLetters.length;
 
     useEffect(() => {
         const currentFields = form.getValues(`rounds.${roundIndex}.unassignedLetterQuestions`);
-        const newFields: UnassignedLetterQuestion[] = Array.from({ length: uniqueLettersCount }, (_, i) => {
+        const newFields: UnassignedLetterQuestion[] = Array.from({ length: lettersCount }, (_, i) => {
             return currentFields[i] || { question: '', answer: '' };
         });
         replace(newFields);
-    }, [uniqueLettersCount, replace, form, roundIndex]);
+    }, [lettersCount, replace, form, roundIndex]);
     
-    if (uniqueLettersCount === 0) {
+    if (lettersCount === 0) {
       return (
          <p className='text-muted-foreground text-center py-4'>
               Enter a main answer above to add letter-reveal questions.
@@ -98,7 +100,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
             <CardHeader>
                 <CardTitle>Letter-Reveal Questions</CardTitle>
                 <FormDescription>
-                    The main answer has {uniqueLettersCount} unique letter(s). Please provide {uniqueLettersCount} question(s). They will be randomly assigned to the letters.
+                    The main answer has {lettersCount} letter(s). Please provide {lettersCount} question(s). They will be randomly assigned to the letters.
                 </FormDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
@@ -106,7 +108,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                     <div key={field.id}>
                         {index > 0 && <Separator className='mb-6' />}
                         <h3 className="text-lg font-semibold mb-4">
-                            Question Set {index + 1}
+                            Question Set for Letter "{answerLetters[index]}"
                         </h3>
                         <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                             <FormField
@@ -244,18 +246,29 @@ export default function CreateGameForm() {
             const gameId = generateGameCode(4);
 
             const gameRounds: Round[] = values.rounds.map(r => {
-                 const uniqueLetters = [...new Set((r.mainAnswer).replace(/\s/g, '').split('').filter(Boolean))];
-                 if (uniqueLetters.length !== r.unassignedLetterQuestions.length) {
-                     throw new Error(`Round with question "${r.mainQuestion.substring(0, 20)}..." has a mismatch between unique letters (${uniqueLetters.length}) and provided questions (${r.unassignedLetterQuestions.length}).`);
+                 const answerLetters = (r.mainAnswer).replace(/\s/g, '').split('').filter(Boolean);
+                 if (answerLetters.length !== r.unassignedLetterQuestions.length) {
+                     throw new Error(`Round with question "${r.mainQuestion.substring(0, 20)}..." has a mismatch between letters (${answerLetters.length}) and provided questions (${r.unassignedLetterQuestions.length}).`);
                  }
 
                 // Shuffle questions for random assignment
                 const shuffledQuestions = [...r.unassignedLetterQuestions].sort(() => Math.random() - 0.5);
 
                 const letterQuestionsMap: Record<string, Omit<AssignedLetterQuestion, 'letter'>> = {};
-                uniqueLetters.forEach((letter, index) => {
+                
+                // Keep track of used indices for duplicate letters
+                const letterIndices: Record<string, number> = {};
+
+                answerLetters.forEach((letter, index) => {
                     const questionData = shuffledQuestions[index];
-                    letterQuestionsMap[letter.toUpperCase()] = { 
+                    const upperLetter = letter.toUpperCase();
+
+                    // For duplicate letters, create a unique key like 'A_1', 'A_2'
+                    const count = letterIndices[upperLetter] || 0;
+                    const uniqueKey = `${upperLetter}_${count}`;
+                    letterIndices[upperLetter] = count + 1;
+
+                    letterQuestionsMap[uniqueKey] = { 
                         question: questionData.question,
                         answer: questionData.answer
                     };
@@ -268,6 +281,7 @@ export default function CreateGameForm() {
                     currentPoints: 1000,
                     team1RevealedLetters: [],
                     team2RevealedLetters: [],
+                    winner: null
                 };
             });
 
@@ -285,6 +299,9 @@ export default function CreateGameForm() {
                 status: 'lobby',
                 createdAt: serverTimestamp(),
                 lastActivityAt: serverTimestamp(),
+                team1: undefined,
+                team2: undefined,
+                forfeitedBy: undefined,
             };
 
             await setDoc(gameDocRef, gameData).catch(error => {

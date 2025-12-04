@@ -16,7 +16,7 @@ interface AnswerGridProps {
   game: Game;
   currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
-  onLetterReveal: (letter: string) => void;
+  onLetterReveal: (letterKey: string) => void;
 }
 
 const letterAnswerSchema = z.object({
@@ -24,11 +24,11 @@ const letterAnswerSchema = z.object({
 });
 
 
-function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }: { letter: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letter: string) => void }) {
+function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLetterReveal }: { letter: string; letterKey: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letterKey: string) => void }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const letterQuestion = currentRound.letterQuestions[letter.toUpperCase()];
+  const letterQuestion = currentRound.letterQuestions[letterKey];
 
   const form = useForm<z.infer<typeof letterAnswerSchema>>({
     resolver: zodResolver(letterAnswerSchema),
@@ -44,14 +44,14 @@ function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }
     }
     
     setIsSubmitting(true);
-    // No DB interaction here, just local logic
+    
     try {
         const isCorrect = letterQuestion.answer.toLowerCase().trim() === values.answer.toLowerCase().trim();
         const teamRevealedLetters = currentRound[playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters'] || [];
 
         if (isCorrect) {
-            if (!teamRevealedLetters.includes(letter.toUpperCase())) {
-                onLetterReveal(letter.toUpperCase());
+            if (!teamRevealedLetters.includes(letterKey)) {
+                onLetterReveal(letterKey);
                 // The toast is moved to the parent to reflect the score change
                 setOpen(false);
             } else {
@@ -121,6 +121,9 @@ export default function AnswerGrid({ game, currentRound, playerTeam, onLetterRev
   const revealedLetters = playerTeam 
     ? (currentRound[playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters'] || [])
     : [...new Set([...(currentRound.team1RevealedLetters || []), ...(currentRound.team2RevealedLetters || [])])];
+    
+  // Keep track of used indices for duplicate letters
+  const letterIndices: Record<string, number> = {};
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
@@ -128,17 +131,22 @@ export default function AnswerGrid({ game, currentRound, playerTeam, onLetterRev
         if (char === ' ') {
           return <div key={index} className="w-8" />;
         }
+        
+        const upperChar = char.toUpperCase();
+        const count = letterIndices[upperChar] || 0;
+        const letterKey = `${upperChar}_${count}`;
+        letterIndices[upperChar] = count + 1;
 
-        const isRevealed = revealedLetters.includes(char.toUpperCase());
+        const isRevealed = revealedLetters.includes(letterKey);
 
         return (
           <div key={index}>
             {isRevealed ? (
               <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-lg border-2 border-primary bg-primary/20 font-mono text-3xl font-bold text-primary shadow-inner animate-in fade-in zoom-in-90">
-                {char.toUpperCase()}
+                {upperChar}
               </div>
             ) : (
-              <LetterDialog letter={char} game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} />
+              <LetterDialog letter={char} letterKey={letterKey} game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} />
             )}
           </div>
         );

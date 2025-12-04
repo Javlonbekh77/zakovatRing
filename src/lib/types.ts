@@ -20,6 +20,7 @@ export interface Round {
   mainQuestion: string;
   mainAnswer: string;
   // This will store the questions with their assigned letters once the round starts.
+  // The key can be 'A_0', 'A_1' for duplicate letters.
   letterQuestions: Record<string, Omit<AssignedLetterQuestion, 'letter'>>;
   // These are stored temporarily at creation, before being assigned.
   unassignedLetterQuestions?: UnassignedLetterQuestion[];
@@ -30,7 +31,7 @@ export interface Round {
   team2RevealedLetters: string[];
 }
 
-export type GameStatus = 'lobby' | 'in_progress' | 'paused' | 'finished' | 'forfeited';
+export type GameStatus = 'lobby' | 'in_progress' | 'paused' | 'finished';
 
 export interface Game {
   id: string;

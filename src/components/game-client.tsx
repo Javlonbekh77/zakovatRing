@@ -119,6 +119,7 @@ function AdminControls({ game, user }: { game: Game, user: any }) {
                 transaction.update(gameDocRef, {
                     status: 'finished',
                     winner: teamId === 'team1' ? 'team2' : 'team1', // Forfeit logic is handled differently, this is direct DQ
+                    forfeitedBy: teamId,
                     lastActivityAt: serverTimestamp()
                 });
              });
@@ -296,11 +297,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const [localGameData, setLocalGameData] = useState<Game | null>(null);
   const [localPoints, setLocalPoints] = useState<number | null>(null);
 
-  const isSpectator = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.location.pathname.includes('/spectate');
-  }, []);
-
+  // This is the single source of truth for the current round, derived from local state
   const currentRound = useMemo(() => {
     if (!localGameData || !Array.isArray(localGameData.rounds) || localGameData.currentRoundIndex >= localGameData.rounds.length) {
       return null;
@@ -321,17 +318,18 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   // This hook sets the game data locally when it's fetched from Firestore
   useEffect(() => {
     if (game) {
+      const isNewRound = localGameData?.currentRoundIndex !== game.currentRoundIndex;
       setLocalGameData(game);
-      // Initialize local points only when the round changes or game loads
       const round = game.rounds[game.currentRoundIndex];
-      if (round && (localGameData?.currentRoundIndex !== game.currentRoundIndex)) {
+      if (round && (isNewRound || localPoints === null)) {
         setLocalPoints(round.currentPoints);
       }
     }
-  }, [game]);
+  }, [game, localGameData?.currentRoundIndex, localPoints]);
   
   // This hook determines the player's team
   useEffect(() => {
+    const isSpectator = window.location.pathname.includes('/spectate');
     if (isSpectator) {
       setPlayerTeam(null);
       return;
@@ -357,9 +355,9 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
        window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
     }
     
-  }, [gameId, searchParams, assignedTeam, isSpectator]);
+  }, [gameId, searchParams, assignedTeam]);
 
-
+  // Round timeout logic, run by the admin
   const endRoundWithTimeout = useCallback(async () => {
     if (!firestore || !gameDocRef || !localGameData) return;
 
@@ -369,7 +367,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         
         const serverGame = gameSnap.data() as Game;
 
-        // Only proceed if the round is still the same one that timed out
+        // Only proceed if the round is still the same one that timed out and is in progress
         if (serverGame.currentRoundIndex !== localGameData.currentRoundIndex || serverGame.rounds[serverGame.currentRoundIndex].status !== 'in_progress') {
             return;
         }
@@ -391,7 +389,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   }, [firestore, gameDocRef, localGameData]);
   
-  // Timer effect for the game creator/admin to decrement points
+  // Timer effect for the game creator/admin to decrement points locally
   useEffect(() => {
     if (!user || !localGameData || user.uid !== localGameData.creatorId || localGameData.status !== 'in_progress') {
       return;
@@ -415,19 +413,25 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }, [localGameData, user, endRoundWithTimeout]);
 
 
-  const handleLetterReveal = useCallback((letter: string) => {
+  const handleLetterReveal = useCallback((letterKey: string) => {
     if (!playerTeam || !localGameData) return;
 
     setLocalGameData(prevData => {
         if (!prevData) return null;
         
-        const newGameData = JSON.parse(JSON.stringify(prevData)); // Deep copy
+        // Deep copy to avoid direct mutation
+        const newGameData = JSON.parse(JSON.stringify(prevData)) as Game;
+        const roundIndex = newGameData.currentRoundIndex;
         
         const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
 
-        const newRevealedLetters = [...(newGameData.rounds[newGameData.currentRoundIndex][revealedLettersKey] || []), letter];
-        newGameData.rounds[newGameData.currentRoundIndex][revealedLettersKey] = newRevealedLetters;
+        // Add the revealed letter
+        const currentRevealed = newGameData.rounds[roundIndex][revealedLettersKey] || [];
+        if (!currentRevealed.includes(letterKey)) {
+            newGameData.rounds[roundIndex][revealedLettersKey].push(letterKey);
+        }
         
+        // Add points to the team
         if(newGameData[playerTeam]) {
             newGameData[playerTeam]!.score += LETTER_REVEAL_REWARD;
         }
@@ -435,7 +439,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         return newGameData;
     });
     
-    toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! You earned ${LETTER_REVEAL_REWARD} points.` });
+    toast({ title: "Correct!", description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.` });
 
   }, [playerTeam, localGameData, toast]);
 
@@ -449,7 +453,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     if (isCorrect) {
         if (!firestore || !gameDocRef) throw new Error("Database connection not found");
         
-        const finalTeamScore = localGameData[playerTeam]!.score + localPoints;
+        const finalTeamScore = (localGameData[playerTeam]?.score || 0) + localPoints;
         
         await runTransaction(firestore, async (transaction) => {
             const gameSnap = await transaction.get(gameDocRef);
@@ -484,11 +488,11 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
             description: `Your team gets ${localPoints} points.`,
         });
 
-    } else {
+    } else { // Incorrect Answer
         setLocalGameData(prevData => {
             if (!prevData) return null;
 
-            const newGameData = JSON.parse(JSON.stringify(prevData)); // Deep copy
+            const newGameData = JSON.parse(JSON.stringify(prevData)) as Game;
             if (newGameData[playerTeam]) {
                 newGameData[playerTeam]!.score -= INCORRECT_ANSWER_PENALTY;
             }
@@ -524,7 +528,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
 
 
-  // Render logic starts here. All hooks have been called.
+  // Render logic starts here.
   if (isLoading) {
     return (
       <div className="flex flex-col items-center gap-4 text-lg">
@@ -538,7 +542,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     return <Card className="w-full max-w-md"><CardHeader><CardTitle>Error</CardTitle></CardHeader><CardContent>{error.message}</CardContent></Card>;
   }
 
-  if (!localGameData || !game) {
+  if (!localGameData) {
      return (
         <Card className="w-full max-w-md">
             <CardHeader>
@@ -550,14 +554,15 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         </Card>
     );
   }
-  
+
+  const isSpectator = !playerTeam;
   if (isSpectator) {
     return <SpectatorView game={localGameData} user={user} localPoints={localPoints}/>
   }
   
   const gameStatus = localGameData.status;
 
-  if (gameStatus === 'finished' || gameStatus === 'forfeited') {
+  if (gameStatus === 'finished') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
          <div className="mx-auto w-fit rounded-full bg-yellow-100 p-4 dark:bg-yellow-900/50 mb-4">
@@ -632,6 +637,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
      )
   }
 
+  // Fallback for unexpected states
   if (gameStatus !== 'in_progress' || !currentRound) {
     return (
         <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
@@ -680,4 +686,3 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     </div>
   );
 }
-
