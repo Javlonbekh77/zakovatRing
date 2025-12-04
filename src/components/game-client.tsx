@@ -390,7 +390,16 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
 
   if (!game) {
-    return <Card className="w-full max-w-md"><CardHeader><CardTitle>Game not found</CardTitle><CardContent>No game with ID <span className='font-mono bg-muted p-1 rounded'>{gameId}</span> was found. It may have been deleted.</CardContent></Card>;
+    return (
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Game not found</CardTitle>
+        </CardHeader>
+        <CardContent>
+          No game with ID <span className='font-mono bg-muted p-1 rounded'>{gameId}</span> was found. It may have been deleted.
+        </CardContent>
+      </Card>
+    );
   }
   
   const currentRound = useMemo(() => {
@@ -400,7 +409,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     return game.rounds[game.currentRoundIndex];
   }, [game]);
   
-  const isSpectator = !playerTeam && !window.location.pathname.startsWith('/game');
+  const isSpectator = !playerTeam && window.location.pathname.includes('/spectate');
 
   // Render spectator-specific dashboard
   if (isSpectator) {
