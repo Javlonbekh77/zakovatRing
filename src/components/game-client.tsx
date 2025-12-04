@@ -410,7 +410,16 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
     return game.rounds[game.currentRoundIndex];
   }, [game]);
-
+  
+  const winner = useMemo(() => {
+    if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
+    if (game.forfeitedBy) {
+        return game.forfeitedBy === 'team1' ? game.team2 : game.team1;
+    }
+    if (game.team1.score > game.team2.score) return game.team1;
+    if (game.team2.score > game.team1.score) return game.team2;
+    return null; // Draw
+  }, [game]);
 
   // This hook determines the player's team
   useEffect(() => {
@@ -752,16 +761,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
   
-  const winner = useMemo(() => {
-    if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
-    if (game.forfeitedBy) {
-        return game.forfeitedBy === 'team1' ? game.team2 : game.team1;
-    }
-    if (game.team1.score > game.team2.score) return game.team1;
-    if (game.team2.score > game.team1.score) return game.team2;
-    return null; // Draw
-  }, [game]);
-
   if (game.status === 'finished') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
