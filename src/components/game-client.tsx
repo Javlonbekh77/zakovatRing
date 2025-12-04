@@ -517,45 +517,69 @@ export default function GameClient({ gameId }: GameClientProps) {
 
       if (isCorrect) {
         const pointsFromRound = currentRound.currentPoints;
+        const currentRoundIndex = localGame.currentRoundIndex;
         
         toast({
-          title: `Correct! Round ${localGame.currentRoundIndex + 1} finished.`,
+          title: `Correct! Round ${currentRoundIndex + 1} finished.`,
           description: `Your team gets ${pointsFromRound} points.`,
         });
 
-        runTransaction(firestore, async (transaction) => {
-           const gameSnap = await transaction.get(gameDocRef);
-           if (!gameSnap.exists()) throw new Error("Game not found on server.");
-           const serverGame = gameSnap.data() as Game;
+        const isLastRound = currentRoundIndex === localGame.rounds.length - 1;
 
-           const serverFinalScore = (serverGame[playerTeam]?.score || 0) + pointsFromRound;
-           
-           const updateData: any = {
-              [`rounds.${localGame.currentRoundIndex}.status`]: 'finished',
-              [`rounds.${localGame.currentRoundIndex}.winner`]: playerTeam,
-              [`${playerTeam}.score`]: serverFinalScore,
-              lastActivityAt: serverTimestamp(),
-            };
-
-            if (localGame.currentRoundIndex < serverGame.rounds.length - 1) {
-              const nextRoundIndex = localGame.currentRoundIndex + 1;
-              updateData.currentRoundIndex = nextRoundIndex;
-              updateData[`rounds.${nextRoundIndex}.status`] = 'in_progress';
-            } else {
-              updateData.status = 'finished' as GameStatus;
-            }
-            transaction.update(gameDocRef, updateData);
-        }).catch(e => {
-            console.error("Failed to sync correct answer:", e);
-            toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save round result. State may be out of sync.'})
-        });
-
-      } else {
-        const newScore = (localGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
-        
+        // Perform local state update immediately
         setLocalGame(prevGame => {
             if (!prevGame) return null;
-            const newTeamData = { ...(prevGame[playerTeam] as Team), score: newScore };
+
+            const newGame = JSON.parse(JSON.stringify(prevGame)); // Deep copy to avoid mutation issues
+            
+            // Update current round
+            newGame.rounds[currentRoundIndex].status = 'finished';
+            newGame.rounds[currentRoundIndex].winner = playerTeam;
+            
+            // Update team score
+            if (newGame[playerTeam]) {
+                newGame[playerTeam]!.score += pointsFromRound;
+            }
+
+            // Move to next round or finish game
+            if (isLastRound) {
+                newGame.status = 'finished';
+            } else {
+                newGame.currentRoundIndex = currentRoundIndex + 1;
+                newGame.rounds[newGame.currentRoundIndex].status = 'in_progress';
+            }
+            return newGame;
+        });
+
+        // If it's the last round, update the database
+        if (isLastRound) {
+            runTransaction(firestore, async (transaction) => {
+               const gameSnap = await transaction.get(gameDocRef);
+               if (!gameSnap.exists()) throw new Error("Game not found on server.");
+               
+               const serverGame = gameSnap.data() as Game;
+               const finalScore = (serverGame[playerTeam]?.score || 0) + pointsFromRound;
+
+               const updateData: any = {
+                  [`rounds.${currentRoundIndex}.status`]: 'finished',
+                  [`rounds.${currentRoundIndex}.winner`]: playerTeam,
+                  [`${playerTeam}.score`]: finalScore,
+                  status: 'finished' as GameStatus,
+                  lastActivityAt: serverTimestamp(),
+                };
+                
+                transaction.update(gameDocRef, updateData);
+            }).catch(e => {
+                console.error("Failed to sync final game state:", e);
+                toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save final game result. Please check your connection.'})
+            });
+        }
+        
+      } else {
+         setLocalGame(prevGame => {
+            if (!prevGame || !prevGame[playerTeam]) return null;
+            const newScore = prevGame[playerTeam]!.score - INCORRECT_ANSWER_PENALTY;
+            const newTeamData = { ...prevGame[playerTeam]!, score: newScore };
             return {...prevGame, [playerTeam]: newTeamData };
         });
 
@@ -563,20 +587,6 @@ export default function GameClient({ gameId }: GameClientProps) {
           variant: 'destructive',
           title: 'Incorrect Answer',
           description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
-        });
-
-        runTransaction(firestore, async transaction => {
-            const gameSnap = await transaction.get(gameDocRef);
-            if (!gameSnap.exists()) throw new Error("Game not found on server.");
-            const serverGame = gameSnap.data() as Game;
-            const serverNewScore = (serverGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
-            transaction.update(gameDocRef, {
-              [`${playerTeam}.score`]: serverNewScore,
-              lastActivityAt: serverTimestamp(),
-            });
-        }).catch(e => {
-            console.error("Failed to sync penalty:", e);
-            toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not apply penalty. State may be out of sync.'})
         });
       }
     },
