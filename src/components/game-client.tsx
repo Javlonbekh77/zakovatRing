@@ -352,14 +352,12 @@ export default function GameClient({ gameId }: GameClientProps) {
   
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
   
-  // Local state for optimistic UI updates. Initialized from Firestore data.
   const [localGame, setLocalGame] = useState<Game | null>(null);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
 
   const teamNameFromUrl = useMemo(() => searchParams.get('teamName'), [searchParams]);
 
-  // Effect to initialize or update local state when Firestore data changes
   useEffect(() => {
     if (game) {
       setLocalGame(game);
@@ -371,7 +369,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     const assignTeam = async () => {
         if (!teamNameFromUrl || !firestore || !gameId || !user || !game) return;
 
-        // Prevent re-assigning if already in a team
         if ((game.team1?.name === teamNameFromUrl && playerTeam === 'team1') || 
             (game.team2?.name === teamNameFromUrl && playerTeam === 'team2')) {
             return;
@@ -386,7 +383,6 @@ export default function GameClient({ gameId }: GameClientProps) {
                 }
                 const gameData = gameSnap.data() as Game;
 
-                // Double check if user is already part of a team on the server
                 if (gameData.team1?.name === teamNameFromUrl) {
                     setPlayerTeam('team1');
                     return;
@@ -396,7 +392,6 @@ export default function GameClient({ gameId }: GameClientProps) {
                     return;
                 }
 
-                // If game is not in lobby, joining is not allowed
                 if (gameData.status !== 'lobby') {
                     toast({ variant: 'destructive', title: 'Game has already started or is full.' });
                     return;
@@ -415,7 +410,6 @@ export default function GameClient({ gameId }: GameClientProps) {
                         [`${newTeamSlot}`]: { name: teamNameFromUrl, score: 0 },
                         lastActivityAt: serverTimestamp(),
                     };
-                    // If the second team is joining, start the game
                     if (newTeamSlot === 'team2') {
                         updateData.status = 'in_progress';
                     }
@@ -456,7 +450,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     return activeGame.rounds[activeGame.currentRoundIndex];
   }, [localGame, game]);
   
-  // This effect manages the points countdown timer LOCALLY
   useEffect(() => {
     if (!localGame || localGame.status !== 'in_progress' || !currentRound || currentRound.status !== 'in_progress') {
         return; 
@@ -480,7 +473,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     async (letterKey: string) => {
       if (!playerTeam || !localGame || !currentRound) return;
       
-      // OPTIMISTIC UPDATE: Update local state immediately
       setLocalGame(prevGame => {
         if (!prevGame) return null;
         
@@ -489,7 +481,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         const currentRevealed = prevGame.rounds[roundIndex][revealedLettersKey] || [];
 
         if (currentRevealed.includes(letterKey)) {
-            return prevGame; // Already revealed, no change
+            return prevGame;
         }
 
         const newRounds = [...prevGame.rounds];
@@ -497,7 +489,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         newRounds[roundIndex] = { ...newRounds[roundIndex], [revealedLettersKey]: newRevealed };
         
         const newScore = (prevGame[playerTeam]?.score || 0) + LETTER_REVEAL_REWARD;
-        const newTeamData = { ...prevGame[playerTeam], score: newScore };
+        const newTeamData = { ...(prevGame[playerTeam] as Team), score: newScore };
 
         return {
             ...prevGame,
@@ -525,41 +517,12 @@ export default function GameClient({ gameId }: GameClientProps) {
 
       if (isCorrect) {
         const pointsFromRound = currentRound.currentPoints;
-        const finalTeamScore = (localGame[playerTeam]?.score || 0) + pointsFromRound;
-
-        // Optimistically update UI to show next round or finished state
-        setLocalGame(prevGame => {
-            if (!prevGame) return null;
-            const roundIndex = prevGame.currentRoundIndex;
-            const newRounds = [...prevGame.rounds];
-            newRounds[roundIndex] = { ...newRounds[roundIndex], status: 'finished', winner: playerTeam };
-
-            const newTeamData = { ...prevGame[playerTeam], score: finalTeamScore };
-            let gameStatus = prevGame.status;
-            let nextRoundIndex = roundIndex;
-
-            if (roundIndex < prevGame.rounds.length - 1) {
-                nextRoundIndex = roundIndex + 1;
-                newRounds[nextRoundIndex] = { ...newRounds[nextRoundIndex], status: 'in_progress' };
-            } else {
-                gameStatus = 'finished' as GameStatus;
-            }
-
-            return {
-                ...prevGame,
-                rounds: newRounds,
-                status: gameStatus,
-                currentRoundIndex: nextRoundIndex,
-                [playerTeam]: newTeamData,
-            };
-        });
         
         toast({
           title: `Correct! Round ${localGame.currentRoundIndex + 1} finished.`,
           description: `Your team gets ${pointsFromRound} points.`,
         });
 
-        // Sync with Firestore in the background
         runTransaction(firestore, async (transaction) => {
            const gameSnap = await transaction.get(gameDocRef);
            if (!gameSnap.exists()) throw new Error("Game not found on server.");
@@ -570,7 +533,7 @@ export default function GameClient({ gameId }: GameClientProps) {
            const updateData: any = {
               [`rounds.${localGame.currentRoundIndex}.status`]: 'finished',
               [`rounds.${localGame.currentRoundIndex}.winner`]: playerTeam,
-              [`${playerTeam}.score`]: serverFinalScore, // Use server score as base
+              [`${playerTeam}.score`]: serverFinalScore,
               lastActivityAt: serverTimestamp(),
             };
 
@@ -588,13 +551,11 @@ export default function GameClient({ gameId }: GameClientProps) {
         });
 
       } else {
-        // Incorrect answer
         const newScore = (localGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
         
-        // Optimistically update local state
         setLocalGame(prevGame => {
             if (!prevGame) return null;
-            const newTeamData = { ...prevGame[playerTeam], score: newScore };
+            const newTeamData = { ...(prevGame[playerTeam] as Team), score: newScore };
             return {...prevGame, [playerTeam]: newTeamData };
         });
 
@@ -604,7 +565,6 @@ export default function GameClient({ gameId }: GameClientProps) {
           description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
         });
 
-        // Sync with Firestore in the background
         runTransaction(firestore, async transaction => {
             const gameSnap = await transaction.get(gameDocRef);
             if (!gameSnap.exists()) throw new Error("Game not found on server.");
@@ -676,7 +636,7 @@ export default function GameClient({ gameId }: GameClientProps) {
     );
   }
   
-  if (!game && !localGame) { // Check both since localGame is derived from game
+  if (!game && !localGame) { 
     return (
        <Card className="w-full max-w-md m-auto">
         <CardHeader>
@@ -692,7 +652,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     )
   }
 
-  // If no team name is in the URL, default to spectator.
   const isSpectator = !teamNameFromUrl;
   if (isSpectator) {
     return <SpectatorView game={activeGame} user={user} />;
@@ -777,12 +736,11 @@ export default function GameClient({ gameId }: GameClientProps) {
   }
   
   if (!currentRound) {
-      // This can happen briefly between rounds when local state updates after a win
       return (
         <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
             <div className="flex flex-col items-center gap-4 text-lg">
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                Loading next round...
+                Loading...
             </div>
         </div>
     );
@@ -826,30 +784,30 @@ export default function GameClient({ gameId }: GameClientProps) {
         onLetterReveal={handleLetterReveal}
         onMainAnswerSubmit={handleMainAnswerSubmit}
       />
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button variant="destructive" className="w-full">
-            <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. You will lose the game
-              immediately.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleForfeit}>
-              Yes, Forfeit
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {playerTeam && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="w-full">
+                <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. You will lose the game
+                  immediately.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleForfeit}>
+                  Yes, Forfeit
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+      )}
     </div>
   );
 }
-
-    
