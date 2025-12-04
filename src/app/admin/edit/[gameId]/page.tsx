@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
-import * as z from 'zod';
+import *s z from 'zod';
 import {
   Form,
   FormControl,
@@ -39,7 +39,7 @@ const roundSchema = z.object({
   mainAnswer: z
     .string()
     .min(1, 'Main answer is required.')
-    .regex(/^[A-Z\s]+$/, 'Main answer can only contain uppercase letters and spaces.'),
+    .regex(/^[A-Z\s'ʻ‘]+$/, "Main answer can only contain uppercase letters, apostrophes, and spaces."),
   letterQuestions: z.array(letterQuestionSchema)
 });
 
@@ -63,33 +63,18 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
     });
 
     React.useEffect(() => {
-        const answerLetters = mainAnswer.replace(/\s/g, '').split('');
+        // When mainAnswer changes, we need to regenerate the fields.
+        // First, unregister all fields for this array to avoid stale data
+        // during validation. This is crucial for dynamic arrays.
+        form.unregister(`rounds.${roundIndex}.letterQuestions`);
 
-        // Preserve existing data before replacing fields
-        const existingData: { [key: string]: { question: string, answer: string } } = {};
-        const currentFields = form.getValues(`rounds.${roundIndex}.letterQuestions`);
-        if (Array.isArray(currentFields)) {
-            currentFields.forEach((field: FormLetterQuestion) => {
-                if (field.letter) {
-                     // Create a unique key for each letter to handle duplicates
-                    const key = `${field.letter}_${Object.keys(existingData).filter(k => k.startsWith(field.letter + '_')).length}`;
-                    existingData[key] = { question: field.question, answer: field.answer };
-                }
-            });
-        }
+        const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
-        const letterCounts: Record<string, number> = {};
-        const newFields: FormLetterQuestion[] = answerLetters.map(letter => {
-            const count = letterCounts[letter] || 0;
-            const key = `${letter}_${count}`;
-            letterCounts[letter] = count + 1;
-            
-            return {
-                letter: letter,
-                question: existingData[key]?.question || '',
-                answer: existingData[key]?.answer || ''
-            };
-        });
+        const newFields = answerLetters.map(letter => ({
+            letter: letter.toUpperCase(),
+            question: '',
+            answer: ''
+        }));
 
         replace(newFields);
     }, [mainAnswer, replace, form, roundIndex]);
@@ -121,7 +106,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                     <div key={field.id} className="relative p-4 border rounded-md">
                         {index > 0 && <Separator className='absolute -top-3 left-0 w-full' />}
                         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                           Question for letter: <span className='font-mono text-2xl text-primary bg-primary/10 px-2 rounded-md'>{mainAnswer.replace(/\s/g, '')[index]}</span>
+                           Question for letter: <span className='font-mono text-2xl text-primary bg-primary/10 px-2 rounded-md'>{mainAnswer.replace(/\s/g, '')[index]?.toUpperCase()}</span>
                         </h3>
                         <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                             <FormField
@@ -131,7 +116,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                                     <FormItem>
                                         <FormLabel>Question</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Question that reveals '${mainAnswer.replace(/\s/g, '')[index]}'`} {...field} />
+                                            <Input placeholder={`Question that reveals '${mainAnswer.replace(/\s/g, '')[index]?.toUpperCase()}'`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -258,14 +243,30 @@ export default function EditGamePage() {
                     throw new Error("File is not a valid text file.");
                 }
                 const jsonData = JSON.parse(text);
-                const validation = formSchema.safeParse(jsonData);
+                
+                // Make the import more flexible
+                const roundsData = jsonData.rounds?.map((round: any) => ({
+                    mainQuestion: round.mainQuestion || '',
+                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase(),
+                    letterQuestions: Array.isArray(round.letterQuestions) ? round.letterQuestions.map((lq: any) => ({
+                        letter: lq.letter || '',
+                        question: lq.question || '',
+                        answer: lq.answer || ''
+                    })) : []
+                }));
+
+                if (!roundsData) {
+                    throw new Error("JSON file is missing a 'rounds' array.");
+                }
+
+                const validation = formSchema.safeParse({ rounds: roundsData });
 
                 if (validation.success) {
                     form.reset(validation.data);
                     toast({ title: 'Game Imported!', description: 'Your game data has been loaded into the form.' });
                 } else {
                     console.error("Import validation failed:", validation.error.flatten().fieldErrors);
-                    throw new Error("JSON file structure is not valid.");
+                    throw new Error("JSON file structure is not valid after parsing.");
                 }
             } catch (err) {
                  if (err instanceof Error) {
