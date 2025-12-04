@@ -406,13 +406,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   // This state will hold the points locally for smooth UI updates
   const [localPoints, setLocalPoints] = useState<number | null>(null);
 
-  const currentRound = useMemo(() => {
-    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
-      return null;
-    }
-    return game.rounds[game.currentRoundIndex];
-  }, [game]);
-  
   const winner = useMemo(() => {
     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
     if (game.forfeitedBy) {
@@ -421,6 +414,13 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     if (game.team1.score > game.team2.score) return game.team1;
     if (game.team2.score > game.team1.score) return game.team2;
     return null; // Draw
+  }, [game]);
+  
+  const currentRound = useMemo(() => {
+    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
+      return null;
+    }
+    return game.rounds[game.currentRoundIndex];
   }, [game]);
 
   // This hook determines the player's team
@@ -464,45 +464,47 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }, [currentRound]);
 
 
-  // Timer effect to decrement points locally
+  // Timer effect to decrement points.
+  // This now runs only for the creator to avoid multiple clients writing to the DB.
   useEffect(() => {
-    if (game?.status !== 'in_progress' || !currentRound || localPoints === null || localPoints <= 0) {
+    if (game?.status !== 'in_progress' || !currentRound || user?.uid !== game.creatorId) {
       return;
     }
 
     const timer = setInterval(() => {
-        setLocalPoints(prevPoints => {
-            const newPoints = Math.max(0, (prevPoints || 0) - POINTS_DECREMENT_AMOUNT);
-            if (newPoints <= 0) {
-                // Time's up, admin should write this to the DB
-                if (user?.uid === game.creatorId && gameDocRef) {
-                     runTransaction(firestore, async (transaction) => {
-                        const gameSnap = await transaction.get(gameDocRef);
-                        if (!gameSnap.exists()) return;
-                        const currentGame = gameSnap.data() as Game;
+      // Admin's client is responsible for updating the points in Firestore
+      if (gameDocRef && firestore) {
+        runTransaction(firestore, async (transaction) => {
+          const gameSnap = await transaction.get(gameDocRef);
+          if (!gameSnap.exists()) return;
+          const currentGame = gameSnap.data() as Game;
+          const round = currentGame.rounds[currentGame.currentRoundIndex];
+          
+          if(round.status !== 'in_progress') return;
 
-                        const updates: any = {
-                            [`rounds.${currentGame.currentRoundIndex}.currentPoints`]: 0,
-                            [`rounds.${currentGame.currentRoundIndex}.status`]: 'finished',
-                            lastActivityAt: serverTimestamp(),
-                        };
+          const newPoints = Math.max(0, round.currentPoints - POINTS_DECREMENT_AMOUNT);
+          
+          const updates: any = {
+            [`rounds.${currentGame.currentRoundIndex}.currentPoints`]: newPoints,
+            lastActivityAt: serverTimestamp()
+          };
 
-                        if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
-                            updates.currentRoundIndex = currentGame.currentRoundIndex + 1;
-                            updates[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
-                        } else {
-                            updates.status = 'finished';
-                        }
-                        transaction.update(gameDocRef, updates);
-                    });
-                }
-            }
-            return newPoints;
+          if (newPoints <= 0) {
+              updates[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
+              if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
+                  updates.currentRoundIndex = currentGame.currentRoundIndex + 1;
+                  updates[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
+              } else {
+                  updates.status = 'finished';
+              }
+          }
+          transaction.update(gameDocRef, updates);
         });
+      }
     }, POINTS_DECREMENT_INTERVAL);
 
     return () => clearInterval(timer);
-  }, [game, currentRound, localPoints, user, firestore, gameDocRef]);
+  }, [game, currentRound, user, firestore, gameDocRef]);
 
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
@@ -560,12 +562,9 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   const handleMainAnswerSubmit = useCallback(
     async (answer: string) => {
-      if (!playerTeam || !game || !currentRound || !gameDocRef || localPoints === null) {
+      if (!playerTeam || !game || !currentRound || !gameDocRef) {
         throw new Error('Game state is not ready for submission.');
       }
-
-      const isCorrect =
-        currentRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
       try {
         await runTransaction(firestore, async (transaction) => {
@@ -581,16 +580,18 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
             });
             return;
           }
+          
+          const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
           if (isCorrect) {
-            const finalTeamScore =
-              (serverGame[playerTeam]?.score || 0) + localPoints;
+            const finalPoints = serverRound.currentPoints; // Points at the moment of correct answer
+            const finalTeamScore = (serverGame[playerTeam]?.score || 0) + finalPoints;
 
             const updateData: any = {
               lastActivityAt: serverTimestamp(),
               [`rounds.${serverGame.currentRoundIndex}.status`]: 'finished',
               [`rounds.${serverGame.currentRoundIndex}.winner`]: playerTeam,
-              [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: localPoints, // Save the final points
+              [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: finalPoints, // Save the final points
               [`${playerTeam}.score`]: finalTeamScore,
             };
 
@@ -608,7 +609,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
               title: `Correct! Round ${
                 serverGame.currentRoundIndex + 1
               } finished.`,
-              description: `Your team gets ${localPoints} points.`,
+              description: `Your team gets ${finalPoints} points.`,
             });
           } else {
             // Incorrect Answer
@@ -635,7 +636,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         }
       }
     },
-    [playerTeam, firestore, gameDocRef, game, toast, currentRound, localPoints]
+    [playerTeam, firestore, gameDocRef, game, toast, currentRound]
   );
   
   const handleForfeit = async () => {
@@ -793,13 +794,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
       </div>
     );
   }
-
-  const roundWithLocalPoints: Round = {
-    ...currentRound,
-    currentPoints: localPoints ?? currentRound.currentPoints,
-  };
-
-
+  
   return (
       <div className="w-full max-w-6xl mx-auto space-y-4">
         <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
@@ -820,7 +815,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         />
         <GameArea
           game={game}
-          currentRound={roundWithLocalPoints}
+          currentRound={currentRound}
           playerTeam={playerTeam}
           onLetterReveal={handleLetterReveal}
           onMainAnswerSubmit={handleMainAnswerSubmit}
@@ -850,4 +845,3 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
       </div>
     );
 }
-
