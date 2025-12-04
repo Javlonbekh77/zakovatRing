@@ -763,24 +763,15 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
-  // Round is loading, but game is not (e.g. between rounds)
-  if (!currentRound && game.status === 'in_progress') {
+  // This is the new, simplified loading state.
+  // It shows a loader if the game object is present but the specific round isn't resolved yet.
+  // This avoids getting stuck on "Loading next round..."
+  if (!currentRound) {
      return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          Loading next round...
-        </div>
-      </div>
-    );
-  }
-  
-  if (!currentRound) {
-     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-        <div className="flex flex-col items-center gap-4 text-lg text-destructive">
-          <AlertTriangle className="h-12 w-12" />
-          Could not determine the current round. The game data might be inconsistent.
+          Loading...
         </div>
       </div>
     );
