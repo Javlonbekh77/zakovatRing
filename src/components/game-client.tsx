@@ -352,7 +352,6 @@ export default function GameClient({ gameId }: GameClientProps) {
   
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
   
-  // Local state is now only used for immediate feedback on wrong answers.
   const [localGame, setLocalGame] = useState<Game | null>(null);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
@@ -367,12 +366,7 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   useEffect(() => {
     const assignTeam = async () => {
-        if (!teamNameFromUrl || !firestore || !gameId || !user || !game) return;
-
-        if ((game.team1?.name === teamNameFromUrl && playerTeam === 'team1') || 
-            (game.team2?.name === teamNameFromUrl && playerTeam === 'team2')) {
-            return;
-        }
+        if (!teamNameFromUrl || !firestore || !gameId || !user) return;
 
         const docRef = doc(firestore, 'games', gameId);
         try {
@@ -431,7 +425,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam]);
 
   const winner = useMemo(() => {
-    const activeGame = game || localGame;
+    const activeGame = localGame || game;
     if (!activeGame || activeGame.status !== 'finished' || !activeGame.team1 || !activeGame.team2) return null;
     if (activeGame.forfeitedBy) {
         return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
@@ -442,7 +436,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   }, [localGame, game]);
 
   const currentRound = useMemo(() => {
-    const activeGame = game || localGame;
+    const activeGame = localGame || game;
     if (!activeGame || !Array.isArray(activeGame.rounds) || activeGame.currentRoundIndex >= activeGame.rounds.length) {
       return null;
     }
@@ -450,115 +444,127 @@ export default function GameClient({ gameId }: GameClientProps) {
   }, [localGame, game]);
   
   useEffect(() => {
-    if (!game || game.status !== 'in_progress' || !currentRound || currentRound.status !== 'in_progress' || !gameDocRef || !firestore) {
-        return; 
+    if (!localGame || localGame.status !== 'in_progress' || !currentRound || currentRound.status !== 'in_progress') {
+      return;
     }
-    
+  
     const timer = setInterval(() => {
-      // Points deduction is now handled via a transaction to avoid overwriting other state changes.
-      runTransaction(firestore, async (transaction) => {
-        const freshGameSnap = await transaction.get(gameDocRef);
-        if (!freshGameSnap.exists()) return;
-
-        const freshGame = freshGameSnap.data() as Game;
-        const freshRound = freshGame.rounds[freshGame.currentRoundIndex];
+      setLocalGame(prevGame => {
+        if (!prevGame) return null;
+  
+        const updatedRounds = [...prevGame.rounds];
+        const currentRoundToUpdate = { ...updatedRounds[prevGame.currentRoundIndex] };
         
-        // Only deduct points if the game and round are in progress
-        if (freshGame.status === 'in_progress' && freshRound.status === 'in_progress') {
-           const newPoints = Math.max(0, freshRound.currentPoints - POINTS_DECREMENT_AMOUNT);
-           transaction.update(gameDocRef, {
-             [`rounds.${freshGame.currentRoundIndex}.currentPoints`]: newPoints,
-           });
-        }
+        currentRoundToUpdate.currentPoints = Math.max(0, currentRoundToUpdate.currentPoints - POINTS_DECREMENT_AMOUNT);
+        updatedRounds[prevGame.currentRoundIndex] = currentRoundToUpdate;
+        
+        return { ...prevGame, rounds: updatedRounds };
       });
     }, POINTS_DECREMENT_INTERVAL);
-
+  
     return () => clearInterval(timer);
-  }, [game, currentRound, gameDocRef, firestore]);
+  }, [localGame, currentRound]);
   
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
-      if (!playerTeam || !game || !currentRound || !firestore || !gameDocRef) return;
-      
-      const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
-      const currentRevealed = currentRound[revealedLettersKey] || [];
-       if (currentRevealed.includes(letterKey)) {
-            return;
-       }
-
-      runTransaction(firestore, async (transaction) => {
-          const gameSnap = await transaction.get(gameDocRef);
-          if (!gameSnap.exists()) throw new Error("Game not found");
-          const serverGame = gameSnap.data() as Game;
-
-          const newRevealed = [...(serverGame.rounds[serverGame.currentRoundIndex][revealedLettersKey] || []), letterKey];
-          const newScore = (serverGame[playerTeam]?.score || 0) + LETTER_REVEAL_REWARD;
-
-          transaction.update(gameDocRef, {
-            [`rounds.${serverGame.currentRoundIndex}.${revealedLettersKey}`]: newRevealed,
-            [`${playerTeam}.score`]: newScore
-          });
-      }).then(() => {
-          toast({
-            title: 'Correct!',
-            description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
-          });
-      }).catch(e => {
-        if(e instanceof Error) toast({ variant: 'destructive', title: 'Error', description: e.message });
-      })
+      if (!playerTeam || !localGame || !currentRound) return;
+  
+      setLocalGame(prevGame => {
+        if (!prevGame) return null;
+  
+        const newGame = { ...prevGame };
+        const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
+  
+        const updatedRounds = [...newGame.rounds];
+        const roundToUpdate = { ...updatedRounds[newGame.currentRoundIndex] };
+        roundToUpdate[revealedLettersKey] = [...roundToUpdate[revealedLettersKey], letterKey];
+        updatedRounds[newGame.currentRoundIndex] = roundToUpdate;
+        
+        if (newGame[playerTeam]) {
+            newGame[playerTeam]!.score += LETTER_REVEAL_REWARD;
+        }
+  
+        return { ...newGame, rounds: updatedRounds };
+      });
+  
+      toast({
+        title: 'Correct!',
+        description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
+      });
     },
-    [playerTeam, game, currentRound, firestore, gameDocRef, toast]
+    [playerTeam, localGame, currentRound, toast]
   );
 
   const handleMainAnswerSubmit = useCallback(
     async (answer: string) => {
-      if (!playerTeam || !game || !currentRound || !gameDocRef || !firestore) {
+      if (!playerTeam || !localGame || !currentRound || !gameDocRef || !firestore) {
         throw new Error('Game state is not ready for submission.');
       }
 
       const isCorrect = currentRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
       if (isCorrect) {
-        toast({
-          title: `Correct! Round ${game.currentRoundIndex + 1} finished.`,
-          description: `Your team gets ${currentRound.currentPoints} points.`,
-        });
+          const isLastRound = localGame.currentRoundIndex === localGame.rounds.length - 1;
 
-        // The entire logic is now in a single, non-blocking transaction.
-        // No more local state manipulation for round progression.
-        runTransaction(firestore, async (transaction) => {
-            const gameSnap = await transaction.get(gameDocRef);
-            if (!gameSnap.exists()) throw new Error("Game not found on server.");
-            
-            const serverGame = gameSnap.data() as Game;
-            const currentRoundIndex = serverGame.currentRoundIndex;
-            const isLastRound = currentRoundIndex === serverGame.rounds.length - 1;
-            
-            const pointsFromRound = serverGame.rounds[currentRoundIndex].currentPoints;
-            const finalScore = (serverGame[playerTeam]?.score || 0) + pointsFromRound;
+          setLocalGame(prevGame => {
+              if (!prevGame) return null;
+              
+              let newGame = { ...prevGame };
+              let updatedRounds = [...newGame.rounds];
+              let roundToUpdate = {...updatedRounds[newGame.currentRoundIndex]};
 
-            let updateData: any = {
-                [`rounds.${currentRoundIndex}.status`]: 'finished',
-                [`rounds.${currentRoundIndex}.winner`]: playerTeam,
-                [`${playerTeam}.score`]: finalScore,
-                lastActivityAt: serverTimestamp(),
-            };
-            
-            if (isLastRound) {
-                updateData.status = 'finished';
-            } else {
-                updateData.currentRoundIndex = currentRoundIndex + 1;
-                updateData[`rounds.${currentRoundIndex + 1}.status`] = 'in_progress';
-            }
-            
-            transaction.update(gameDocRef, updateData);
-        }).catch(e => {
-            console.error("Failed to sync final game state:", e);
-            toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save game result. Please check your connection.'})
-        });
+              // Update scores
+              const pointsFromRound = roundToUpdate.currentPoints;
+              if (newGame[playerTeam]) {
+                  newGame[playerTeam]!.score += pointsFromRound;
+              }
+
+              // Update round status
+              roundToUpdate.status = 'finished';
+              roundToUpdate.winner = playerTeam;
+              updatedRounds[newGame.currentRoundIndex] = roundToUpdate;
+              
+              if(isLastRound) {
+                  newGame.status = 'finished';
+              } else {
+                  newGame.currentRoundIndex += 1;
+                  updatedRounds[newGame.currentRoundIndex].status = 'in_progress';
+              }
+
+              return { ...newGame, rounds: updatedRounds };
+          });
+          
+          toast({
+            title: `Correct! Round ${localGame.currentRoundIndex + 1} finished.`,
+            description: `Your team gets ${currentRound.currentPoints} points.`,
+          });
+
+          if (isLastRound) {
+              // This is the only time we write to the database
+              runTransaction(firestore, async (transaction) => {
+                  const finalScoreTeam1 = localGame.team1!.score + (playerTeam === 'team1' ? currentRound.currentPoints : 0);
+                  const finalScoreTeam2 = localGame.team2!.score + (playerTeam === 'team2' ? currentRound.currentPoints : 0);
+                  
+                  transaction.update(gameDocRef, {
+                      status: 'finished',
+                      'team1.score': finalScoreTeam1,
+                      'team2.score': finalScoreTeam2,
+                      // Also send the final state of all rounds
+                      rounds: localGame.rounds.map((r, index) => {
+                          if (index === localGame.currentRoundIndex) {
+                              return {...r, status: 'finished', winner: playerTeam };
+                          }
+                          return r;
+                      }),
+                      lastActivityAt: serverTimestamp(),
+                  });
+              }).catch(e => {
+                  console.error("Failed to sync final game state:", e);
+                  toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save game result. Please check your connection.'})
+              });
+          }
         
       } else {
-         // Optimistically update local state for penalty for immediate feedback
          setLocalGame(prevGame => {
             if (!prevGame || !prevGame[playerTeam]) return null;
             const newScore = prevGame[playerTeam]!.score - INCORRECT_ANSWER_PENALTY;
@@ -566,26 +572,14 @@ export default function GameClient({ gameId }: GameClientProps) {
             return {...prevGame, [playerTeam]: newTeamData };
         });
 
-        // Show toast only to the current player
         toast({
           variant: 'destructive',
           title: 'Incorrect Answer',
           description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
         });
-
-        // Update the penalty in the database
-         runTransaction(firestore, async (transaction) => {
-            const gameSnap = await transaction.get(gameDocRef);
-            if (!gameSnap.exists()) return;
-            const serverGame = gameSnap.data() as Game;
-            const newScore = (serverGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
-            transaction.update(gameDocRef, {
-                [`${playerTeam}.score`]: newScore
-            });
-         });
       }
     },
-    [playerTeam, firestore, gameDocRef, game, toast, currentRound]
+    [playerTeam, firestore, gameDocRef, localGame, toast, currentRound]
   );
   
   const handleForfeit = async () => {
@@ -611,14 +605,14 @@ export default function GameClient({ gameId }: GameClientProps) {
     }
   };
 
-  const activeGame = game || localGame;
+  const activeGame = localGame || game;
 
   if (isLoading || !activeGame) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          Loading Game...
+          Loading...
         </div>
       </div>
     );
@@ -813,14 +807,12 @@ export default function GameClient({ gameId }: GameClientProps) {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-            
-            {user?.uid === activeGame.creatorId && (
-              <AdminControls game={activeGame} user={user} />
-            )}
           </div>
       )}
+
+      {user?.uid === activeGame.creatorId && (
+        <AdminControls game={activeGame} user={user} />
+       )}
     </div>
   );
 }
-
-    
