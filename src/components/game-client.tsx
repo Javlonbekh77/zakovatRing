@@ -721,13 +721,12 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   // This is the main "in_progress" render block.
   // If the game is loaded but the current round is somehow not (e.g. during a fast transition),
   // show a loader instead of crashing.
-  if (game && !currentRound) {
+  if (game.status === 'in_progress' && !currentRound) {
      return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
           Loading round...
-           <p className='text-sm text-muted-foreground'>Could not determine the current round. The game data might be inconsistent.</p>
         </div>
       </div>
     );
