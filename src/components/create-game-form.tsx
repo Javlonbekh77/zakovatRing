@@ -245,7 +245,7 @@ export default function CreateGameForm() {
         try {
             const gameId = generateGameCode(4);
 
-            const gameRounds: Omit<Round, 'team1RevealedLetters' | 'team2RevealedLetters'>[] = values.rounds.map(r => {
+            const gameRounds: Round[] = values.rounds.map(r => {
                 const letterQuestionsMap: Round['letterQuestions'] = {};
                 const letterIndices: Record<string, number> = {};
 
@@ -276,7 +276,7 @@ export default function CreateGameForm() {
             const gameData: Omit<Game, 'team1' | 'team2'> = {
                 id: gameId,
                 creatorId: user.uid,
-                rounds: gameRounds as Round[],
+                rounds: gameRounds,
                 currentRoundIndex: 0, // Master index
                 status: 'lobby' as GameStatus,
                 createdAt: serverTimestamp(),

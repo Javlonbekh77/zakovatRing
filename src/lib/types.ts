@@ -24,9 +24,6 @@ export interface Round {
   status: RoundStatus;
   winner?: 'team1' | 'team2' | null;
   currentPoints: number;
-  // These are now obsolete as each team tracks their own
-  team1RevealedLetters: string[];
-  team2RevealedLetters: string[];
 }
 
 export type GameStatus = 'lobby' | 'in_progress' | 'paused' | 'finished';

@@ -19,8 +19,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, GameStatus, FormLetterQuestion } from '@/lib/types';
+import React, from 'react';
+import type { Game, Round, GameStatus, FormLetterQuestion } from '@/lib/types';
 import { useRouter, useParams } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { serverTimestamp, doc, runTransaction } from 'firebase/firestore';
@@ -62,7 +62,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
         name: `rounds.${roundIndex}.letterQuestions`
     });
 
-    useEffect(() => {
+    React.useEffect(() => {
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
         // Preserve existing data if possible when answer changes
@@ -146,7 +146,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
 }
 
 export default function EditGamePage() {
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
     const { toast } = useToast();
     const router = useRouter();
     const params = useParams();
@@ -166,25 +166,36 @@ export default function EditGamePage() {
         },
     });
 
-    useEffect(() => {
+    React.useEffect(() => {
         if (game) {
             if (Array.isArray(game.rounds)) {
                 const formRounds = game.rounds.map(r => {
-                    const letters = r.mainAnswer.replace(/\s/g, '').split('');
-                    const letterIndices: Record<string, number> = {};
+                    const answerLetters = r.mainAnswer.replace(/\s/g, '').split('');
+                    const letterQuestions: FormLetterQuestion[] = [];
+                    const usedKeys: Record<string, number> = {};
                     
-                    const letterQuestions: FormLetterQuestion[] = letters.map(letter => {
-                        const count = letterIndices[letter] || 0;
-                        const key = `${letter}_${count}`;
-                        letterIndices[letter] = count + 1;
-                        
-                        const questionData = r.letterQuestions[key];
-
-                        return {
+                    answerLetters.forEach(letter => {
+                       const upperLetter = letter.toUpperCase();
+                       const count = usedKeys[upperLetter] || 0;
+                       const key = `${upperLetter}_${count}`;
+                       usedKeys[upperLetter] = count + 1;
+                       
+                       const questionData = r.letterQuestions[key];
+                       if (questionData) {
+                         letterQuestions.push({
                             letter: letter,
-                            question: questionData?.question || '',
-                            answer: questionData?.answer || ''
-                        }
+                            question: questionData.question,
+                            answer: questionData.answer
+                         });
+                       } else {
+                         // This case can happen if the mainAnswer was changed
+                         // but we still want to generate a field for it
+                         letterQuestions.push({
+                            letter: letter,
+                            question: '',
+                            answer: ''
+                         });
+                       }
                     });
 
                     return {
@@ -205,7 +216,7 @@ export default function EditGamePage() {
         name: "rounds"
     });
 
-    const handleExport = useCallback(() => {
+    const handleExport = React.useCallback(() => {
         try {
             const values = form.getValues();
             const validation = formSchema.safeParse(values);
@@ -314,8 +325,6 @@ export default function EditGamePage() {
                         letterQuestions: letterQuestionsMap,
                         status: originalRound?.status || 'pending',
                         currentPoints: originalRound?.currentPoints ?? 1000,
-                        team1RevealedLetters: originalRound?.team1RevealedLetters || [],
-                        team2RevealedLetters: originalRound?.team2RevealedLetters || [],
                         winner: originalRound?.winner || null,
                     };
                 });
@@ -333,9 +342,13 @@ export default function EditGamePage() {
 
                 if (newRounds.length > 0) {
                    if (gameStatus === 'in_progress' || gameStatus === 'lobby') {
-                        newRounds[currentRoundIndex].status = 'in_progress';
+                       if(newRounds[currentRoundIndex]) {
+                         newRounds[currentRoundIndex].status = 'in_progress';
+                       }
                    } else if (gameStatus === 'paused') {
-                        newRounds[currentRoundIndex].status = 'paused';
+                       if(newRounds[currentRoundIndex]) {
+                         newRounds[currentRoundIndex].status = 'paused';
+                       }
                    }
                 }
 

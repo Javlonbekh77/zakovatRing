@@ -31,7 +31,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Badge } from './ui/badge';
 import { useDoc, useFirestore, useMemoFirebase, useUser } from '@/firebase';
-import { doc, runTransaction, serverTimestamp, getDoc } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -384,22 +384,22 @@ export default function GameClient({ gameId }: GameClientProps) {
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const teamNameFromUrl = useMemo(() => searchParams.get('teamName'), [searchParams]);
 
-  // Effect to initialize or update localGame when the server-side game state changes.
   useEffect(() => {
     if (game) {
-      // Always sync the local game with the server state if not in the middle of an individual round.
-      // This ensures that when one player finishes, the other player's view is updated correctly.
-      if (!localGame || game.status !== 'in_progress' || localGame.status !== 'in_progress') {
-        setLocalGame(game);
-      }
+      setLocalGame(game);
     }
-  }, [game]); // Removed localGame from dependency array
+  }, [game]);
 
 
   // Effect for joining the game.
   useEffect(() => {
     const assignTeam = async () => {
-        if (!teamNameFromUrl || !firestore || !gameId || !user || playerTeam) return;
+        if (!teamNameFromUrl || !firestore || !gameId || !user || playerTeam || !game) return;
+        
+        if (game.status !== 'lobby' && game.team1?.name !== teamNameFromUrl && game.team2?.name !== teamNameFromUrl) {
+           toast({ variant: 'destructive', title: 'Game is not in lobby', description: 'You can only spectate.'});
+           return;
+        }
 
         const docRef = doc(firestore, 'games', gameId);
         try {
@@ -422,7 +422,7 @@ export default function GameClient({ gameId }: GameClientProps) {
                     toast({ variant: 'destructive', title: 'Game has already started or is full.' }); return;
                 }
                 
-                const newTeamData = { 
+                const newTeamData: Team = { 
                   name: teamNameFromUrl, 
                   score: 0, 
                   currentRoundIndex: 0,
@@ -463,18 +463,22 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   // Effect for the points countdown timer, running entirely on local state.
   useEffect(() => {
-    if (!localGame || localGame.status !== 'in_progress') return;
+    if (!localGame || !playerTeam || localGame.status !== 'in_progress') return;
 
     const timer = setInterval(() => {
       setLocalGame(prevGame => {
-        if (!prevGame || !Array.isArray(prevGame.rounds) || prevGame.status !== 'in_progress') return prevGame;
+        if (!prevGame || !Array.isArray(prevGame.rounds) || prevGame.status !== 'in_progress' || !prevGame[playerTeam]) return prevGame;
+        
+        const playerTeamData = prevGame[playerTeam]!;
+        const currentRoundIndex = playerTeamData.currentRoundIndex;
+        if(currentRoundIndex >= prevGame.rounds.length) return prevGame;
 
         const updatedRounds = [...prevGame.rounds];
-        const currentRound = updatedRounds[prevGame.currentRoundIndex];
+        const currentRound = updatedRounds[currentRoundIndex];
         
-        if (currentRound && currentRound.status === 'in_progress') {
+        if (currentRound) {
             currentRound.currentPoints = Math.max(0, currentRound.currentPoints - POINTS_DECREMENT_AMOUNT);
-            updatedRounds[prevGame.currentRoundIndex] = currentRound;
+            updatedRounds[currentRoundIndex] = currentRound;
             return { ...prevGame, rounds: updatedRounds };
         }
         return prevGame;
@@ -482,7 +486,7 @@ export default function GameClient({ gameId }: GameClientProps) {
     }, POINTS_DECREMENT_INTERVAL);
   
     return () => clearInterval(timer);
-  }, [localGame]);
+  }, [localGame, playerTeam]);
   
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
@@ -491,16 +495,17 @@ export default function GameClient({ gameId }: GameClientProps) {
       setLocalGame(prevGame => {
         if (!prevGame || !prevGame[playerTeam]) return null;
         
-        const currentRoundIndex = prevGame[playerTeam]!.currentRoundIndex;
+        const teamData = prevGame[playerTeam]!;
+        const currentRoundIndex = teamData.currentRoundIndex;
   
         const newGame = { 
             ...prevGame,
             [playerTeam]: {
-                ...prevGame[playerTeam]!,
-                score: prevGame[playerTeam]!.score + LETTER_REVEAL_REWARD,
+                ...teamData,
+                score: teamData.score + LETTER_REVEAL_REWARD,
                 revealedLetters: {
-                    ...prevGame[playerTeam]!.revealedLetters,
-                    [currentRoundIndex]: [...(prevGame[playerTeam]!.revealedLetters[currentRoundIndex] || []), letterKey]
+                    ...teamData.revealedLetters,
+                    [currentRoundIndex]: [...(teamData.revealedLetters[currentRoundIndex] || []), letterKey]
                 }
             }
         };
@@ -563,10 +568,13 @@ export default function GameClient({ gameId }: GameClientProps) {
                   const finalUpdate: any = {
                       [`${playerTeam}.score`]: finalScore,
                       [`${playerTeam}.currentRoundIndex`]: nextRoundIndex,
+                       lastActivityAt: serverTimestamp(),
                   };
                   
-                  const otherTeam = playerTeam === 'team1' ? 'team2' : 'team1';
-                  if (serverGame[otherTeam] && serverGame[otherTeam]!.currentRoundIndex === localGame.rounds.length) {
+                  const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
+                  const otherTeamData = serverGame[otherTeamKey];
+
+                  if (otherTeamData && otherTeamData.currentRoundIndex === localGame.rounds.length) {
                      finalUpdate.status = 'finished';
                   }
 
@@ -698,32 +706,8 @@ export default function GameClient({ gameId }: GameClientProps) {
     return <SpectatorView game={game} user={user} />;
   }
   
-  const hasPlayerFinished = currentRoundIndexForPlayer >= activeGame.rounds.length;
+  const hasPlayerFinished = playerTeamData && playerTeamData.currentRoundIndex >= activeGame.rounds.length;
 
-  if (hasPlayerFinished) {
-      const bothFinished = activeGame.team1?.currentRoundIndex === activeGame.rounds.length && activeGame.team2?.currentRoundIndex === activeGame.rounds.length;
-
-      if (bothFinished && activeGame.status !== 'finished') {
-          // This should trigger a server-side update to finalize the game
-           if (firestore && gameDocRef) {
-              updateDoc(gameDocRef, { status: 'finished', lastActivityAt: serverTimestamp() });
-           }
-      }
-
-      return (
-        <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
-            <CardHeader>
-                <CardTitle>You've Finished!</CardTitle>
-                <CardDescription>Waiting for the other team to finish to see the final results.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
-            </CardContent>
-        </Card>
-      );
-  }
-  
-  // Game Finished View
   if (activeGame.status === 'finished') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
@@ -775,6 +759,20 @@ export default function GameClient({ gameId }: GameClientProps) {
       </Card>
     );
   }
+
+  if (hasPlayerFinished) {
+      return (
+        <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
+            <CardHeader>
+                <CardTitle>You've Finished!</CardTitle>
+                <CardDescription>Waiting for the other team to finish to see the final results.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+            </CardContent>
+        </Card>
+      );
+  }
   
   // Lobby View
   if (activeGame.status === 'lobby') {
@@ -825,7 +823,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
             <div className="flex flex-col items-center gap-4 text-lg">
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                Initializing...
+                Loading round...
             </div>
         </div>
     );
