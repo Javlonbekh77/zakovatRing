@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
@@ -28,6 +29,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useToast } from '@/hooks/use-toast';
 
@@ -248,7 +250,7 @@ function SpectatorView({ game, user, localPoints }: { game: Game, user: any, loc
               </div>
               <CardDescription>{round.mainQuestion}</CardDescription>
             </CardHeader>
-             {round.status === 'in_progress' && (
+             {index === game.currentRoundIndex && game.status === 'in_progress' && (
                 <CardContent>
                     <p className='text-lg font-bold font-mono text-primary'>
                         {localPoints !== null ? localPoints : round.currentPoints} points remaining
@@ -285,43 +287,38 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { user } = useUser();
   const { toast } = useToast();
   const searchParams = useSearchParams();
+
+  // All hooks are called at the top level
   const gameDocRef = useMemoFirebase(() => firestore ? doc(firestore, 'games', gameId) : null, [firestore, gameId]);
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
-
+  
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
-  const [localPoints, setLocalPoints] = useState<number | null>(null);
   const [localGameData, setLocalGameData] = useState<Game | null>(null);
-
-
-  const currentRound = useMemo(() => {
-    if (!localGameData || !Array.isArray(localGameData.rounds) || localGameData.currentRoundIndex >= localGameData.rounds.length) {
-      return null;
-    }
-    return localGameData.rounds[localGameData.currentRoundIndex];
-  }, [localGameData]);
+  const [localPoints, setLocalPoints] = useState<number | null>(null);
   
-  const winner = useMemo(() => {
-    if (!localGameData || localGameData.status !== 'finished' || !localGameData.team1 || !localGameData.team2) return null;
-    if (localGameData.forfeitedBy) {
-        return localGameData.forfeitedBy === 'team1' ? localGameData.team2 : localGameData.team1;
-    }
-    if (localGameData.team1.score > localGameData.team2.score) return localGameData.team1;
-    if (localGameData.team2.score > localGameData.team1.score) return localGameData.team2;
-    return null; // Draw
-  }, [localGameData]);
 
-  const isSpectator = useMemo(() => !playerTeam && typeof window !== 'undefined' && window.location.pathname.includes('/spectate'), [playerTeam]);
+  const isSpectator = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname.includes('/spectate');
+  }, []);
   
+  // This hook sets the game data locally when it's fetched from Firestore
   useEffect(() => {
     if (game) {
       setLocalGameData(game);
-      if (game.rounds[game.currentRoundIndex]) {
+      if (game.rounds && game.rounds[game.currentRoundIndex]) {
         setLocalPoints(game.rounds[game.currentRoundIndex].currentPoints);
       }
     }
   }, [game]);
   
+  // This hook determines the player's team
   useEffect(() => {
+    if (isSpectator) {
+      setPlayerTeam(null);
+      return;
+    }
+
     const teamFromUrl = searchParams.get('team') as 'team1' | 'team2' | null;
     let storedTeamInfo = null;
 
@@ -335,33 +332,32 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
     
     const teamToSet = assignedTeam || teamFromUrl || storedTeamInfo?.team || null;
+    setPlayerTeam(teamToSet);
 
-    if (typeof window !== 'undefined' && !window.location.pathname.includes('/spectate')) {
-      setPlayerTeam(teamToSet);
-    }
-
-    if (teamToSet && !assignedTeam && !teamFromUrl) {
+    if (teamToSet && !assignedTeam && !teamFromUrl && typeof window !== 'undefined') {
        const newUrl = `${window.location.pathname}?team=${teamToSet}`;
        window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
     }
     
-  }, [gameId, searchParams, assignedTeam]);
+  }, [gameId, searchParams, assignedTeam, isSpectator]);
   
-  // Timer effect, runs only for the game creator
+  // Timer effect for the game creator/admin
   useEffect(() => {
-    if (!localGameData || !user || user.uid !== localGameData.creatorId || localGameData.status !== 'in_progress' || !currentRound) {
+    if (!localGameData || !user || user.uid !== localGameData.creatorId || localGameData.status !== 'in_progress') {
       return;
     }
 
     const timer = setInterval(() => {
       setLocalPoints(prevPoints => {
-        const newPoints = (prevPoints ?? currentRound.currentPoints) - POINTS_DECREMENT_AMOUNT;
+        if (prevPoints === null) return null;
+
+        const newPoints = prevPoints - POINTS_DECREMENT_AMOUNT;
 
         if (newPoints <= 0) {
             if (firestore && gameDocRef) {
                 runTransaction(firestore, async (transaction) => {
                     const gameSnap = await transaction.get(gameDocRef);
-                    if (!gameSnap.exists()) throw new Error("Game not found.");
+                    if (!gameSnap.exists()) return;
                     const currentGame = gameSnap.data() as Game;
 
                     if(currentGame.status === 'in_progress' && currentGame.currentRoundIndex === localGameData.currentRoundIndex) {
@@ -387,7 +383,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }, POINTS_DECREMENT_INTERVAL);
   
     return () => clearInterval(timer);
-  }, [localGameData, user, currentRound, firestore, gameDocRef]);
+  }, [localGameData, user, firestore, gameDocRef]);
 
 
   const handleLetterReveal = useCallback((letter: string, questionPoints: number) => {
@@ -398,13 +394,13 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
       const newRounds = [...prevData.rounds];
       const roundIndex = prevData.currentRoundIndex;
-      const currentRound = newRounds[roundIndex];
+      const currentRound = { ...newRounds[roundIndex] };
       const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
       
       const newRevealedLetters = [...(currentRound[revealedLettersKey] || []), letter];
       
       const newTeam = { ...prevData[playerTeam]! };
-      newTeam.score += questionPoints;
+      newTeam.score = (newTeam.score || 0) + questionPoints;
 
       newRounds[roundIndex] = {
         ...currentRound,
@@ -420,10 +416,10 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }, [playerTeam]);
 
   const handleMainAnswerSubmit = useCallback(async (answer: string) => {
-    if (!playerTeam || !firestore || !gameDocRef || !localGameData || !currentRound || localPoints === null) {
+    if (!playerTeam || !firestore || !gameDocRef || !localGameData || localPoints === null) {
       throw new Error("Game state is not ready for submission.");
     }
-
+    
     let toastMessage: { title: string, description: string, variant?: "default" | "destructive" } | null = null;
     
     await runTransaction(firestore, async (transaction) => {
@@ -432,6 +428,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
         const serverGame = gameSnap.data() as Game;
         const serverRound = serverGame.rounds[serverGame.currentRoundIndex];
+        const serverTeamData = serverGame[playerTeam];
 
         if (serverRound.status !== 'in_progress') {
             toastMessage = { title: "Round Over", description: "This round has already finished." };
@@ -439,16 +436,25 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         }
 
         const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
-        const localTeam = localGameData[playerTeam]!;
+        const localTeamData = localGameData[playerTeam]!;
+
+        // Combine local reveals with server reveals to prevent lost data
+        const mergedTeam1Revealed = Array.from(new Set([...(serverRound.team1RevealedLetters || []), ...(localGameData.rounds[localGameData.currentRoundIndex].team1RevealedLetters || [])]));
+        const mergedTeam2Revealed = Array.from(new Set([...(serverRound.team2RevealedLetters || []), ...(localGameData.rounds[localGameData.currentRoundIndex].team2RevealedLetters || [])]));
+        
         let updateData: any = { 
             lastActivityAt: serverTimestamp(),
-            [`${playerTeam}.score`]: localTeam.score,
-            [`rounds.${serverGame.currentRoundIndex}.team1RevealedLetters`]: localGameData.rounds[serverGame.currentRoundIndex].team1RevealedLetters,
-            [`rounds.${serverGame.currentRoundIndex}.team2RevealedLetters`]: localGameData.rounds[serverGame.currentRoundIndex].team2RevealedLetters,
+            'team1.score': serverGame.team1?.score, // Default to server score
+            'team2.score': serverGame.team2?.score,
+            [`rounds.${serverGame.currentRoundIndex}.team1RevealedLetters`]: mergedTeam1Revealed,
+            [`rounds.${serverGame.currentRoundIndex}.team2RevealedLetters`]: mergedTeam2Revealed,
         };
+
+        // Use local team score which includes points from letter reveals
+        updateData[`${playerTeam}.score`] = localTeamData.score;
         
         if (isCorrect) {
-            updateData[`${playerTeam}.score`] += localPoints;
+            updateData[`${playerTeam}.score`] += localPoints; // Add remaining round points
             updateData[`rounds.${serverGame.currentRoundIndex}.status`] = 'finished';
             updateData[`rounds.${serverGame.currentRoundIndex}.winner`] = playerTeam;
             
@@ -478,7 +484,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     if (toastMessage) {
       toast(toastMessage);
     }
-  }, [playerTeam, firestore, gameDocRef, localGameData, currentRound, toast, localPoints]);
+  }, [playerTeam, firestore, gameDocRef, localGameData, toast, localPoints]);
 
   const handleForfeit = async () => {
       if (!firestore || !playerTeam || !localGameData) return;
@@ -486,8 +492,9 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
       try {
         await runTransaction(firestore, async (transaction) => {
             transaction.update(gameDocRef, {
-                status: 'forfeited',
+                status: 'finished', // Change to finished, and set winner
                 forfeitedBy: playerTeam,
+                winner: playerTeam === 'team1' ? 'team2' : 'team1',
                 lastActivityAt: serverTimestamp()
             });
         });
@@ -496,8 +503,26 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           if (e instanceof Error) toast({ variant: 'destructive', title: 'Error', description: e.message });
       }
   }
+  
+  const currentRound = useMemo(() => {
+    if (!localGameData || !Array.isArray(localGameData.rounds) || localGameData.currentRoundIndex >= localGameData.rounds.length) {
+      return null;
+    }
+    return localGameData.rounds[localGameData.currentRoundIndex];
+  }, [localGameData]);
+  
+  const winner = useMemo(() => {
+    if (!localGameData || localGameData.status !== 'finished' || !localGameData.team1 || !localGameData.team2) return null;
+    if (localGameData.forfeitedBy) {
+        return localGameData.forfeitedBy === 'team1' ? localGameData.team2 : localGameData.team1;
+    }
+    if (localGameData.team1.score > localGameData.team2.score) return localGameData.team1;
+    if (localGameData.team2.score > localGameData.team1.score) return localGameData.team2;
+    return null; // Draw
+  }, [localGameData]);
 
-  // Render logic starts here
+
+  // Render logic starts here. All hooks have been called.
   if (isLoading) {
     return (
       <div className="flex flex-col items-center gap-4 text-lg">
@@ -525,10 +550,12 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
   
   if (isSpectator) {
-    return <SpectatorView game={localGameData} user={user} localPoints={localPoints} />
+    return <SpectatorView game={localGameData} user={user} localPoints={localPoints}/>
   }
   
-  if (localGameData.status === 'finished' || localGameData.status === 'forfeited') {
+  const gameStatus = localGameData.status;
+
+  if (gameStatus === 'finished' || gameStatus === 'forfeited') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
          <div className="mx-auto w-fit rounded-full bg-yellow-100 p-4 dark:bg-yellow-900/50 mb-4">
@@ -565,7 +592,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
-  if (localGameData.status === 'lobby') {
+  if (gameStatus === 'lobby') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-xl">
         <CardHeader>
@@ -592,18 +619,18 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
   
-  if (localGameData.status === 'paused') {
+  if (gameStatus === 'paused') {
      return (
         <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
           <div className="flex flex-col items-center gap-4 text-lg">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <Pause className="h-12 w-12 text-primary" />
             Game is paused by the admin...
         </div>
       </div>
      )
   }
 
-  if (localGameData.status !== 'in_progress' || !currentRound) {
+  if (gameStatus !== 'in_progress' || !currentRound) {
     return (
         <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
           <div className="flex flex-col items-center gap-4 text-lg">
@@ -651,3 +678,5 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     </div>
   );
 }
+
+    
