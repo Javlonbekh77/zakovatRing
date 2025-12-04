@@ -344,12 +344,24 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
+  // State for optimistic UI updates
+  const [optimisticGame, setOptimisticGame] = useState<Game | null>(null);
+
   const gameDocRef = useMemoFirebase(
     () => (firestore && gameId ? doc(firestore, 'games', gameId) : null),
     [firestore, gameId]
   );
   
-  const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
+  const { data: remoteGame, isLoading, error } = useDoc<Game>(gameDocRef);
+
+  // The game state used by the UI is either the optimistic state or the remote one
+  const game = useMemo(() => optimisticGame || remoteGame, [optimisticGame, remoteGame]);
+
+  // When remoteGame changes, update the optimistic state to match it.
+  useEffect(() => {
+    setOptimisticGame(remoteGame);
+  }, [remoteGame]);
+
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const [localCurrentPoints, setLocalCurrentPoints] = useState(1000); 
@@ -405,7 +417,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   useEffect(() => {
     if (currentRound) {
-        // When round changes, reset local points to the round's starting points
         setLocalCurrentPoints(currentRound.currentPoints);
     }
 
@@ -413,66 +424,107 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         return; 
     }
     
-    // This timer now only affects the local state, not Firestore.
+    // Only the creator (admin) should be responsible for decrementing points
+    if (user?.uid !== game.creatorId) return;
+
     const timer = setInterval(() => {
-        setLocalCurrentPoints(prevPoints => Math.max(0, prevPoints - POINTS_DECREMENT_AMOUNT));
+      // This is a "fire-and-forget" update for the points.
+      // It does not wait for a response, preventing UI blocking.
+      if (firestore && gameDocRef) {
+          runTransaction(firestore, async transaction => {
+              const gameSnap = await transaction.get(gameDocRef);
+              if (!gameSnap.exists()) return;
+              const serverGame = gameSnap.data() as Game;
+              const serverRound = serverGame.rounds[serverGame.currentRoundIndex];
+
+              if(serverGame.status !== 'in_progress' || serverRound.status !== 'in_progress') return;
+
+              const newPoints = Math.max(0, serverRound.currentPoints - POINTS_DECREMENT_AMOUNT);
+              transaction.update(gameDocRef, {
+                  [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: newPoints
+              });
+          }).catch(err => {
+              // We log the error but don't show a toast to avoid spamming the admin
+              console.error("Error decrementing points:", err);
+          });
+      }
+
     }, POINTS_DECREMENT_INTERVAL);
 
     return () => clearInterval(timer);
-  }, [currentRound, game?.status]); 
+  }, [currentRound, game?.status, user?.uid, game?.creatorId, firestore, gameDocRef]);
+  
+  // Update local points whenever the remote game data changes
+  useEffect(() => {
+      if (currentRound) {
+          setLocalCurrentPoints(currentRound.currentPoints);
+      }
+  }, [currentRound?.currentPoints])
+
 
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
       if (!playerTeam || !game || !gameDocRef || !currentRound) return;
+      
+      const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
+      
+      // --- Optimistic UI Update ---
+      setOptimisticGame(prevGame => {
+          if (!prevGame) return null;
+          const newGame = JSON.parse(JSON.stringify(prevGame)) as Game;
+          const optimisticRound = newGame.rounds[newGame.currentRoundIndex];
+          if (!optimisticRound[revealedLettersKey].includes(letterKey)) {
+              optimisticRound[revealedLettersKey].push(letterKey);
+              if (newGame[playerTeam]) {
+                (newGame[playerTeam] as Team).score += LETTER_REVEAL_REWARD;
+              }
+          }
+          return newGame;
+      });
+
+      toast({
+        title: 'Correct!',
+        description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
+      });
+      // --- End Optimistic UI Update ---
 
       try {
         await runTransaction(firestore, async (transaction) => {
           const gameSnap = await transaction.get(gameDocRef);
           if (!gameSnap.exists()) throw new Error('Game not found');
-          const currentGame = gameSnap.data() as Game;
-		      const currentRoundIndex = currentGame.currentRoundIndex;
-		      const round = currentGame.rounds[currentRoundIndex];
+          const serverGame = gameSnap.data() as Game;
+		      const serverRoundIndex = serverGame.currentRoundIndex;
+		      const round = serverGame.rounds[serverRoundIndex];
 
           if (round.status !== 'in_progress') {
-            toast({ title: "Round Over", description: "This round has already finished." });
+            // The round ended while the user was answering.
+            // No need to show a toast here, the UI will update to the next round.
             return;
           }
 
-          const revealedLettersKey =
-            playerTeam === 'team1'
-              ? 'team1RevealedLetters'
-              : 'team2RevealedLetters';
           const currentRevealed = round[revealedLettersKey] || [];
 
           if (!currentRevealed.includes(letterKey)) {
             const newRevealed = [...currentRevealed, letterKey];
             const newScore =
-              (currentGame[playerTeam]?.score || 0) + LETTER_REVEAL_REWARD;
+              (serverGame[playerTeam]?.score || 0) + LETTER_REVEAL_REWARD;
 
             transaction.update(gameDocRef, {
-              [`rounds.${currentRoundIndex}.${revealedLettersKey}`]: newRevealed,
+              [`rounds.${serverRoundIndex}.${revealedLettersKey}`]: newRevealed,
               [`${playerTeam}.score`]: newScore,
               lastActivityAt: serverTimestamp(),
-            });
-
-            toast({
-              title: 'Correct!',
-              description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
-            });
-          } else {
-            toast({
-              title: 'Already Revealed',
-              description: `You have already revealed this letter.`,
             });
           }
         });
       } catch (e) {
         if (e instanceof Error) {
-          toast({ variant: 'destructive', title: 'Error', description: e.message });
+          toast({ variant: 'destructive', title: 'Sync Error', description: e.message });
+          // On error, revert the optimistic update by fetching from remote
+          setOptimisticGame(remoteGame);
         }
       }
     },
-    [playerTeam, game, gameDocRef, firestore, toast, currentRound]
+    [playerTeam, game, gameDocRef, firestore, toast, currentRound, remoteGame]
   );
 
   const handleMainAnswerSubmit = useCallback(
@@ -498,19 +550,17 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
           if (isCorrect) {
-            // Use the LOCAL points when the answer was submitted
             const pointsFromRound = localCurrentPoints;
             const finalTeamScore = (serverGame[playerTeam]?.score || 0) + pointsFromRound;
 
             const updateData: any = {
               [`rounds.${serverRoundIndex}.status`]: 'finished',
               [`rounds.${serverRoundIndex}.winner`]: playerTeam,
-              [`rounds.${serverRoundIndex}.currentPoints`]: pointsFromRound, // Save the final points for this round
+              [`rounds.${serverRoundIndex}.currentPoints`]: pointsFromRound, 
               [`${playerTeam}.score`]: finalTeamScore,
               lastActivityAt: serverTimestamp(),
             };
 
-            // Move to next round or finish game
             if (serverRoundIndex < serverGame.rounds.length - 1) {
               const nextRoundIndex = serverRoundIndex + 1;
               updateData.currentRoundIndex = nextRoundIndex;
@@ -526,7 +576,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
               description: `Your team gets ${pointsFromRound} points.`,
             });
           } else {
-            // Only update score on incorrect answer
             const newScore =
               (serverGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
             transaction.update(gameDocRef, {
@@ -710,8 +759,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
-  // This is the crucial check. If the game is in progress but we can't determine the current round
-  // (e.g., during the brief moment of a round transition), we show a loader instead of an error or a blank page.
   if (game.status === 'in_progress' && !currentRound) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
@@ -773,6 +820,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {user?.uid === game.creatorId && <AdminControls game={game} user={user} />}
     </div>
   );
 }
