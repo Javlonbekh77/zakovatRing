@@ -64,23 +64,33 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
 
     React.useEffect(() => {
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
+
+        // Preserve existing data before replacing fields
+        const existingData: { [key: string]: { question: string, answer: string } } = {};
+        const currentFields = form.getValues(`rounds.${roundIndex}.letterQuestions`);
+        if (Array.isArray(currentFields)) {
+            currentFields.forEach((field: FormLetterQuestion) => {
+                if (field.letter) {
+                     // Create a unique key for each letter to handle duplicates
+                    const key = `${field.letter}_${Object.keys(existingData).filter(k => k.startsWith(field.letter + '_')).length}`;
+                    existingData[key] = { question: field.question, answer: field.answer };
+                }
+            });
+        }
         
-        // Unregister old fields to prevent stale data issues on validation
-        form.unregister(`rounds.${roundIndex}.letterQuestions`);
+        const letterCounts: Record<string, number> = {};
+        const newFields: FormLetterQuestion[] = answerLetters.map(letter => {
+            const count = letterCounts[letter] || 0;
+            const key = `${letter}_${count}`;
+            letterCounts[letter] = count + 1;
+            
+            return {
+                letter: letter,
+                question: existingData[key]?.question || '',
+                answer: existingData[key]?.answer || ''
+            };
+        });
 
-        // Preserve existing data if possible when answer changes
-        const existingData: Record<string, {q: string, a: string}> = (fields as FormLetterQuestion[]).reduce((acc, field) => {
-            if(field.letter && field.question && field.answer) {
-                 acc[field.letter] = { q: field.question, a: field.answer };
-            }
-            return acc;
-        }, {} as Record<string, {q: string, a: string}>);
-
-        const newFields: FormLetterQuestion[] = answerLetters.map(letter => ({
-            letter: letter,
-            question: existingData[letter]?.q || '',
-            answer: existingData[letter]?.a || ''
-        }));
         replace(newFields);
     }, [mainAnswer, replace, form, roundIndex]);
 
@@ -512,5 +522,3 @@ export default function EditGamePage() {
         </div>
     );
 }
-
-    

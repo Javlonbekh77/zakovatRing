@@ -74,26 +74,44 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
     useEffect(() => {
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
-        // Unregister old fields to prevent stale data issues on validation
-        form.unregister(`rounds.${roundIndex}.letterQuestions`);
-
-        const existingFields = form.getValues(`rounds.${roundIndex}.letterQuestions`);
+        // Preserve existing data before replacing fields
         const existingData: { [key: string]: { question: string, answer: string } } = {};
-        if (Array.isArray(existingFields)) {
-            existingFields.forEach((field: FormLetterQuestion) => {
+        const currentFields = form.getValues(`rounds.${roundIndex}.letterQuestions`);
+        if (Array.isArray(currentFields)) {
+            currentFields.forEach((field: FormLetterQuestion, index) => {
                 if (field.letter) {
-                    existingData[field.letter] = { question: field.question, answer: field.answer };
+                    // Use index as a key to handle duplicate letters correctly
+                    const key = `${field.letter}_${index}`;
+                    existingData[key] = { question: field.question, answer: field.answer };
                 }
             });
         }
         
-        const newFields: FormLetterQuestion[] = answerLetters.map(letter => ({
-            letter: letter,
-            question: existingData[letter]?.question || '',
-            answer: existingData[letter]?.answer || ''
-        }));
+        const letterCounts: Record<string, number> = {};
+        const newFields: FormLetterQuestion[] = answerLetters.map(letter => {
+            const count = letterCounts[letter] || 0;
+            const key = `${letter}_${count}`;
+            letterCounts[letter] = count + 1;
+            
+            // Find the first matching-letter field that has not been used.
+            const existingFieldKey = Object.keys(existingData).find(k => k.startsWith(`${letter}_`));
+            let q = '', a = '';
+            if (existingFieldKey) {
+                q = existingData[existingFieldKey].question;
+                a = existingData[existingFieldKey].answer;
+                delete existingData[existingFieldKey]; // Ensure it's not reused
+            }
+
+            return {
+                letter: letter,
+                question: q,
+                answer: a
+            };
+        });
+
         replace(newFields);
     }, [mainAnswer, replace, form, roundIndex]);
+
 
     if (!mainAnswer) {
         return (
@@ -443,5 +461,3 @@ export default function CreateGameForm() {
         </Form>
     );
 }
-
-    
