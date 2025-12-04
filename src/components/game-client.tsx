@@ -666,6 +666,20 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     )
   }
 
+  // This is the new, simplified loading state.
+  // It shows a loader if the game object is present but the specific round isn't resolved yet.
+  // This avoids getting stuck on "Loading next round..."
+  if (game && !currentRound) {
+     return (
+      <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+        <div className="flex flex-col items-center gap-4 text-lg">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
   const isSpectator = !playerTeam;
   if (isSpectator) {
     return <SpectatorView game={game} user={user} />;
@@ -763,17 +777,17 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
-  // This is the new, simplified loading state.
-  // It shows a loader if the game object is present but the specific round isn't resolved yet.
-  // This avoids getting stuck on "Loading next round..."
+  // In this case, `game` exists and `currentRound` also exists.
   if (!currentRound) {
-     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-        <div className="flex flex-col items-center gap-4 text-lg">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          Loading...
+    // This case should ideally not be hit if the above loader works correctly,
+    // but it's a fallback.
+    return (
+        <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+            <div className="flex flex-col items-center gap-4 text-lg text-destructive">
+                <AlertTriangle className="h-12 w-12" />
+                Could not determine the current round. The game data might be inconsistent.
+            </div>
         </div>
-      </div>
     );
   }
 
