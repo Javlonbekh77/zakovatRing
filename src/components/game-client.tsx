@@ -35,6 +35,8 @@ import { useToast } from '@/hooks/use-toast';
 
 const POINTS_DECREMENT_INTERVAL = 5000; // 5 seconds
 const POINTS_DECREMENT_AMOUNT = 10; // 10 points
+const LETTER_REVEAL_REWARD = 10;
+const INCORRECT_ANSWER_PENALTY = 50;
 
 
 function AdminControls({ game, user }: { game: Game, user: any }) {
@@ -278,90 +280,97 @@ interface GameClientProps {
 
 
 export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
+  // All hooks must be at the top level
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const searchParams = useSearchParams();
   const firestore = useFirestore();
   const { user } = useUser();
   const { toast } = useToast();
-
-  const gameDocRef = useMemoFirebase(() => {
-    if (!firestore || !gameId) return null;
-    return doc(firestore, 'games', gameId);
-  }, [firestore, gameId]);
-
+  const gameDocRef = useMemoFirebase(() => firestore ? doc(firestore, 'games', gameId) : null, [firestore, gameId]);
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
-  
+
+  // Use a local state for game data to prevent UI flickers
+  const [localGameData, setLocalGameData] = useState<Game | null>(null);
+
+  useEffect(() => {
+    if (game) {
+      setLocalGameData(game);
+    }
+  }, [game]);
+
+
   const currentRound = useMemo(() => {
-    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
+    if (!localGameData || !Array.isArray(localGameData.rounds) || localGameData.currentRoundIndex >= localGameData.rounds.length) {
       return null;
     }
-    return game.rounds[game.currentRoundIndex];
-  }, [game]);
+    return localGameData.rounds[localGameData.currentRoundIndex];
+  }, [localGameData]);
   
   const winner = useMemo(() => {
-     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
-    if (game.forfeitedBy) {
-        return game.forfeitedBy === 'team1' ? game.team2 : game.team1;
+    if (!localGameData || localGameData.status !== 'finished' || !localGameData.team1 || !localGameData.team2) return null;
+    if (localGameData.forfeitedBy) {
+        return localGameData.forfeitedBy === 'team1' ? localGameData.team2 : localGameData.team1;
     }
-    if (game.team1.score > game.team2.score) return game.team1;
-    if (game.team2.score > game.team1.score) return game.team2;
+    if (localGameData.team1.score > localGameData.team2.score) return localGameData.team1;
+    if (localGameData.team2.score > localGameData.team1.score) return localGameData.team2;
     return null; // Draw
-  }, [game]);
+  }, [localGameData]);
 
   const isSpectator = useMemo(() => !playerTeam && typeof window !== 'undefined' && window.location.pathname.includes('/spectate'), [playerTeam]);
   
-  const [localPoints, setLocalPoints] = useState<number | null>(null);
-  
-  // Effect 1: Initialize and update local points when the official round changes
+  // Timer effect, runs only for the game creator
   useEffect(() => {
-    if (currentRound) {
-        setLocalPoints(currentRound.currentPoints);
-    }
-  }, [currentRound]);
-
-
-  // Effect 2: The timer logic, runs only for the creator
-  useEffect(() => {
-    if (!game || !user || user.uid !== game.creatorId || game.status !== 'in_progress' || localPoints === null || localPoints <= 0) {
+    if (!localGameData || !user || user.uid !== localGameData.creatorId || localGameData.status !== 'in_progress' || !currentRound) {
       return;
     }
   
-    const timer = setInterval(async () => {
-       setLocalPoints(prevPoints => {
-           const newPoints = (prevPoints || 0) - POINTS_DECREMENT_AMOUNT;
-           if (newPoints <= 0) {
-               // Time is up for this round. Update Firestore.
-               if (firestore && gameDocRef) {
+    const timer = setInterval(() => {
+        setLocalGameData(prevData => {
+            if (!prevData || !prevData.rounds[prevData.currentRoundIndex]) return prevData;
+            
+            const newPoints = prevData.rounds[prevData.currentRoundIndex].currentPoints - POINTS_DECREMENT_AMOUNT;
+            
+            if (newPoints <= 0) {
+                // Time is up for this round. Update Firestore.
+                if (firestore && gameDocRef) {
                    runTransaction(firestore, async (transaction) => {
                        const gameSnap = await transaction.get(gameDocRef);
                        if (!gameSnap.exists()) throw new Error("Game not found.");
-                       
                        const currentGame = gameSnap.data() as Game;
-                       // Only proceed if this is still the current round
-                       if(currentGame.status === 'in_progress' && currentGame.currentRoundIndex === game.currentRoundIndex) {
+
+                       // Only proceed if this is still the current round and it's in progress
+                       if(currentGame.status === 'in_progress' && currentGame.currentRoundIndex === localGameData.currentRoundIndex) {
                            const updates: any = {
-                               [`rounds.${game.currentRoundIndex}.currentPoints`]: 0,
-                               [`rounds.${game.currentRoundIndex}.status`]: 'finished',
+                               [`rounds.${localGameData.currentRoundIndex}.currentPoints`]: 0,
+                               [`rounds.${localGameData.currentRoundIndex}.status`]: 'finished',
                                lastActivityAt: serverTimestamp(),
                            };
-                           if (game.currentRoundIndex < game.rounds.length - 1) {
-                               updates.currentRoundIndex = game.currentRoundIndex + 1;
-                               updates[`rounds.${game.currentRoundIndex + 1}.status`] = 'in_progress';
+                           if (localGameData.currentRoundIndex < localGameData.rounds.length - 1) {
+                               updates.currentRoundIndex = localGameData.currentRoundIndex + 1;
+                               updates[`rounds.${localGameData.currentRoundIndex + 1}.status`] = 'in_progress';
                            } else {
                                updates.status = 'finished'; // End of game
                            }
                            transaction.update(gameDocRef, updates);
                        }
                    });
-               }
-               return 0;
-           }
-           return newPoints;
-       });
+                }
+                // Stop the timer locally by returning the previous state - Firestore will update the rest
+                return prevData; 
+            } else {
+                 // Just update the local state, no Firestore write
+                const newRounds = [...prevData.rounds];
+                newRounds[prevData.currentRoundIndex] = {
+                    ...newRounds[prevData.currentRoundIndex],
+                    currentPoints: newPoints
+                };
+                return { ...prevData, rounds: newRounds };
+            }
+        });
     }, POINTS_DECREMENT_INTERVAL);
   
     return () => clearInterval(timer);
-  }, [game, user, firestore, gameDocRef, localPoints]);
+  }, [localGameData, user, firestore, gameDocRef]);
 
 
   useEffect(() => {
@@ -390,109 +399,98 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     
   }, [gameId, searchParams, assignedTeam]);
 
+  const handleLetterReveal = useCallback((letter: string) => {
+    if (!playerTeam) return;
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center gap-4 text-lg">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        Loading game...
-      </div>
-    );
-  }
+    setLocalGameData(prevData => {
+      if (!prevData) return null;
 
-  if (error) {
-    return <Card className="w-full max-w-md"><CardHeader><CardTitle>Error</CardTitle></CardHeader><CardContent>{error.message}</CardContent></Card>;
-  }
+      const newRounds = [...prevData.rounds];
+      const roundIndex = prevData.currentRoundIndex;
+      const currentRound = newRounds[roundIndex];
+      const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
+      
+      const newRevealedLetters = [...currentRound[revealedLettersKey], letter];
+      
+      const newTeam = { ...prevData[playerTeam]! };
+      newTeam.score += LETTER_REVEAL_REWARD;
 
-  if (!game) {
-    return (
-        <Card className="w-full max-w-md">
-            <CardHeader><CardTitle>Game not found</CardTitle></CardHeader>
-            <CardContent>
-                No game with ID <span className='font-mono bg-muted p-1 rounded'>{gameId}</span> was found. It may have been deleted.
-            </CardContent>
-        </Card>
-    );
-  }
-  
-  if (isSpectator) {
-    return <SpectatorView game={game} user={user} />
-  }
-  
-  if (game.status === 'finished' || game.status === 'forfeited') {
-    return (
-      <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
-         <div className="mx-auto w-fit rounded-full bg-yellow-100 p-4 dark:bg-yellow-900/50 mb-4">
-            <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />
-          </div>
-        <CardHeader>
-          <CardTitle className="text-4xl font-headline">Game Over!</CardTitle>
-          {winner ? (
-            <CardDescription className="text-xl">
-              <span className='font-bold text-primary'>{winner.name}</span> wins!
-            </CardDescription>
-          ) : (
-            <CardDescription className="text-xl">It's a draw!</CardDescription>
-          )}
-           {game.forfeitedBy && game[game.forfeitedBy] && (
-              <CardDescription className="text-sm text-destructive mt-2">
-                  Game was forfeited by {game[game.forfeitedBy]?.name}.
-              </CardDescription>
-          )}
-        </CardHeader>
-        <CardContent>
-          <p className='text-muted-foreground'>Final Scores:</p>
-          <div className='flex justify-around mt-4'>
-            {game.team1 && <div className='text-lg'><span className='font-bold'>{game.team1.name}</span>: {game.team1.score}</div>}
-            {game.team2 && <div className='text-lg'><span className='font-bold'>{game.team2.name}</span>: {game.team2.score}</div>}
-          </div>
-        </CardContent>
-        <CardFooter>
-          <Button asChild className='w-full'>
-            <Link href="/">Play Again</Link>
-          </Button>
-        </CardFooter>
-      </Card>
-    );
-  }
+      newRounds[roundIndex] = {
+        ...currentRound,
+        [revealedLettersKey]: newRevealedLetters
+      };
 
-  if (game.status === 'lobby') {
-    return (
-      <Card className="w-full max-w-lg text-center p-8 shadow-xl">
-        <CardHeader>
-          <div className="mx-auto w-fit rounded-full bg-primary/10 p-4 mb-4">
-            <Users className="h-12 w-12 text-primary" />
-          </div>
-          <CardTitle className="font-headline text-3xl">Game Lobby</CardTitle>
-          <CardDescription>Waiting for the second player to join...</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-            <div className='font-mono text-xl p-3 bg-muted rounded-md'>Game Code: <span className='font-bold tracking-widest'>{game.id}</span></div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
-                <div className='p-4 border rounded-md'>
-                    <h3 className='font-bold'>Team 1</h3>
-                    <p>{game.team1?.name || 'Waiting...'}</p>
-                </div>
-                 <div className='p-4 border rounded-md'>
-                    <h3 className='font-bold'>Team 2</h3>
-                    <p>{game.team2?.name || 'Waiting...'}</p>
-                </div>
-            </div>
-        </CardContent>
-      </Card>
-    );
-  }
+      return {
+        ...prevData,
+        rounds: newRounds,
+        [playerTeam]: newTeam
+      };
+    });
+  }, [playerTeam]);
 
-  if (game.status !== 'in_progress' || !currentRound || localPoints === null) {
-     return (
-        <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-          <div className="flex flex-col items-center gap-4 text-lg">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            {game.status === 'paused' ? 'Game is paused by the admin...' : 'Loading game state...'}
-        </div>
-      </div>
-     )
-  }
+  const handleMainAnswerSubmit = useCallback(async (answer: string) => {
+    if (!playerTeam || !firestore || !gameDocRef || !localGameData || !currentRound) {
+      throw new Error("Game state is not ready for submission.");
+    }
+
+    let toastMessage: { title: string, description: string, variant?: "default" | "destructive" } | null = null;
+    
+    await runTransaction(firestore, async (transaction) => {
+        const gameSnap = await transaction.get(gameDocRef);
+        if (!gameSnap.exists()) throw new Error("Game data not found.");
+
+        const serverGame = gameSnap.data() as Game;
+        const serverRound = serverGame.rounds[serverGame.currentRoundIndex];
+        const serverTeam = serverGame[playerTeam]!;
+
+        if (serverRound.status !== 'in_progress') {
+            toastMessage = { title: "Round Over", description: "This round has already finished." };
+            return;
+        }
+
+        const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
+        let updateData: any = { lastActivityAt: serverTimestamp() };
+        
+        // Take local game data for revealed letters and score as it's more up-to-date
+        const localTeam = localGameData[playerTeam]!;
+        updateData[`${playerTeam}.score`] = localTeam.score;
+        updateData[`rounds.${serverGame.currentRoundIndex}.team1RevealedLetters`] = localGameData.rounds[serverGame.currentRoundIndex].team1RevealedLetters;
+        updateData[`rounds.${serverGame.currentRoundIndex}.team2RevealedLetters`] = localGameData.rounds[serverGame.currentRoundIndex].team2RevealedLetters;
+
+
+        if (isCorrect) {
+            const pointsWon = currentRound.currentPoints; 
+            updateData[`${playerTeam}.score`] += pointsWon;
+            updateData[`rounds.${serverGame.currentRoundIndex}.status`] = 'finished';
+            updateData[`rounds.${serverGame.currentRoundIndex}.winner`] = playerTeam;
+            
+            toastMessage = {
+              title: `Correct! Round ${serverGame.currentRoundIndex + 1} finished.`,
+              description: `Your team gets ${pointsWon} points.`,
+            };
+
+            if (serverGame.currentRoundIndex < serverGame.rounds.length - 1) {
+                updateData.currentRoundIndex = serverGame.currentRoundIndex + 1;
+                updateData[`rounds.${serverGame.currentRoundIndex + 1}.status`] = 'in_progress';
+            } else {
+                updateData.status = 'finished';
+            }
+        } else {
+            updateData[`${playerTeam}.score`] -= INCORRECT_ANSWER_PENALTY;
+            toastMessage = {
+              variant: 'destructive',
+              title: 'Incorrect Answer',
+              description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
+            };
+        }
+        
+        transaction.update(gameDocRef, updateData);
+    });
+      
+    if (toastMessage) {
+      toast(toastMessage);
+    }
+  }, [playerTeam, firestore, gameDocRef, localGameData, currentRound, toast]);
 
   const handleForfeit = async () => {
       if (!firestore || !playerTeam) return;
@@ -510,21 +508,119 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           if (e instanceof Error) toast({ variant: 'destructive', title: 'Error', description: e.message });
       }
   }
+
+  // Render logic starts here
+  if (isLoading || !localGameData) {
+    return (
+      <div className="flex flex-col items-center gap-4 text-lg">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        Loading game...
+      </div>
+    );
+  }
+
+  if (error) {
+    return <Card className="w-full max-w-md"><CardHeader><CardTitle>Error</CardTitle></CardHeader><CardContent>{error.message}</CardContent></Card>;
+  }
   
-  const roundWithLocalPoints: Round = {
-      ...currentRound,
-      currentPoints: localPoints,
-  };
+  if (isSpectator) {
+    return <SpectatorView game={localGameData} user={user} />
+  }
+  
+  if (localGameData.status === 'finished' || localGameData.status === 'forfeited') {
+    return (
+      <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
+         <div className="mx-auto w-fit rounded-full bg-yellow-100 p-4 dark:bg-yellow-900/50 mb-4">
+            <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />
+          </div>
+        <CardHeader>
+          <CardTitle className="text-4xl font-headline">Game Over!</CardTitle>
+          {winner ? (
+            <CardDescription className="text-xl">
+              <span className='font-bold text-primary'>{winner.name}</span> wins!
+            </CardDescription>
+          ) : (
+            <CardDescription className="text-xl">It's a draw!</CardDescription>
+          )}
+           {localGameData.forfeitedBy && localGameData[localGameData.forfeitedBy] && (
+              <CardDescription className="text-sm text-destructive mt-2">
+                  Game was forfeited by {localGameData[localGameData.forfeitedBy]?.name}.
+              </CardDescription>
+          )}
+        </CardHeader>
+        <CardContent>
+          <p className='text-muted-foreground'>Final Scores:</p>
+          <div className='flex justify-around mt-4'>
+            {localGameData.team1 && <div className='text-lg'><span className='font-bold'>{localGameData.team1.name}</span>: {localGameData.team1.score}</div>}
+            {localGameData.team2 && <div className='text-lg'><span className='font-bold'>{localGameData.team2.name}</span>: {localGameData.team2.score}</div>}
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button asChild className='w-full'>
+            <Link href="/">Play Again</Link>
+          </Button>
+        </CardFooter>
+      </Card>
+    );
+  }
 
+  if (localGameData.status === 'lobby') {
+    return (
+      <Card className="w-full max-w-lg text-center p-8 shadow-xl">
+        <CardHeader>
+          <div className="mx-auto w-fit rounded-full bg-primary/10 p-4 mb-4">
+            <Users className="h-12 w-12 text-primary" />
+          </div>
+          <CardTitle className="font-headline text-3xl">Game Lobby</CardTitle>
+          <CardDescription>Waiting for the second player to join...</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className='font-mono text-xl p-3 bg-muted rounded-md'>Game Code: <span className='font-bold tracking-widest'>{localGameData.id}</span></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
+                <div className='p-4 border rounded-md'>
+                    <h3 className='font-bold'>Team 1</h3>
+                    <p>{localGameData.team1?.name || 'Waiting...'}</p>
+                </div>
+                 <div className='p-4 border rounded-md'>
+                    <h3 className='font-bold'>Team 2</h3>
+                    <p>{localGameData.team2?.name || 'Waiting...'}</p>
+                </div>
+            </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  
+  if (localGameData.status === 'paused') {
+     return (
+        <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+          <div className="flex flex-col items-center gap-4 text-lg">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            Game is paused by the admin...
+        </div>
+      </div>
+     )
+  }
 
+  if (localGameData.status !== 'in_progress' || !currentRound) {
+    return (
+        <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+          <div className="flex flex-col items-center gap-4 text-lg">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            Loading game state...
+          </div>
+        </div>
+    )
+  }
+  
   return (
     <div className="w-full max-w-6xl mx-auto space-y-4">
       <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
-        <span>Game Code: <strong className="font-mono">{game.id}</strong></span>
-        <span>Round: <strong className="font-mono">{game.currentRoundIndex + 1} / {game.rounds.length}</strong></span>
+        <span>Game Code: <strong className="font-mono">{localGameData.id}</strong></span>
+        <span>Round: <strong className="font-mono">{localGameData.currentRoundIndex + 1} / {localGameData.rounds.length}</strong></span>
       </div>
-      <Scoreboard team1={game.team1} team2={game.team2} playerTeam={playerTeam} />
-      <GameArea game={game} currentRound={roundWithLocalPoints} playerTeam={playerTeam} />
+      <Scoreboard team1={localGameData.team1} team2={localGameData.team2} playerTeam={playerTeam} />
+      <GameArea game={localGameData} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={handleLetterReveal} onMainAnswerSubmit={handleMainAnswerSubmit} />
         <AlertDialog>
             <AlertDialogTrigger asChild>
                 <Button variant="destructive" className="w-full">

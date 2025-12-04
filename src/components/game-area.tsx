@@ -20,18 +20,17 @@ interface GameAreaProps {
   game: Game;
   currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
+  onLetterReveal: (letter: string) => void;
+  onMainAnswerSubmit: (answer: string) => Promise<void>;
 }
 
 const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-const INCORRECT_ANSWER_PENALTY = 50;
-
-export default function GameArea({ game, currentRound, playerTeam }: GameAreaProps) {
+export default function GameArea({ game, currentRound, playerTeam, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const firestore = useFirestore();
 
   const form = useForm<z.infer<typeof answerSchema>>({
     resolver: zodResolver(answerSchema),
@@ -39,73 +38,16 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
   });
 
   const handleAnswerSubmit = async (values: z.infer<typeof answerSchema>) => {
-    if (!playerTeam || !firestore) {
+    if (!playerTeam) {
         toast({ variant: "destructive", title: "You are a spectator!", description: "You cannot submit answers." });
         return;
     }
 
     setIsSubmitting(true);
-    let toastMessage: { title: string, description: string, variant?: "default" | "destructive" } | null = null;
     
     try {
-      const gameDocRef = doc(firestore, 'games', game.id);
-      
-      await runTransaction(firestore, async (transaction) => {
-          const gameSnap = await transaction.get(gameDocRef);
-          if (!gameSnap.exists()) throw new Error("Game data not found.");
-
-          const currentGame = gameSnap.data() as Game;
-          const round = currentGame.rounds[currentGame.currentRoundIndex];
-          const team = currentGame[playerTeam];
-
-          if (!team) throw new Error("Team data is missing");
-      
-          if (round.status !== 'in_progress') {
-            // This toast is now outside the transaction
-            toastMessage = { title: "Round Over", description: "This round has already finished." };
-            return; // Exit transaction
-          }
-
-          const isCorrect = round.mainAnswer.toLowerCase().trim() === values.answer.toLowerCase().trim();
-          const teamScorePath = `${playerTeam}.score`;
-          let updateData: any = { lastActivityAt: serverTimestamp() };
-
-          if (isCorrect) {
-              // Use the points from the client-side state passed in via props
-              const pointsWon = currentRound.currentPoints; 
-              updateData[teamScorePath] = team.score + pointsWon;
-              updateData[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
-              updateData[`rounds.${currentGame.currentRoundIndex}.winner`] = playerTeam;
-              
-              toastMessage = {
-                title: `Correct! Round ${currentGame.currentRoundIndex + 1} finished.`,
-                description: `Your team gets ${pointsWon} points.`,
-              };
-
-              if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
-                  updateData.currentRoundIndex = currentGame.currentRoundIndex + 1;
-                  updateData[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
-              } else {
-                  updateData.status = 'finished';
-              }
-          } else {
-              updateData[teamScorePath] = Math.max(0, team.score - INCORRECT_ANSWER_PENALTY);
-              toastMessage = {
-                variant: 'destructive',
-                title: 'Incorrect Answer',
-                description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
-              };
-          }
-          
-          transaction.update(gameDocRef, updateData);
-      });
-      
-      // Show toast after the transaction is complete
-      if (toastMessage) {
-        toast(toastMessage);
-      }
+      await onMainAnswerSubmit(values.answer);
       form.reset();
-
     } catch (error) {
       if (error instanceof Error) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
@@ -181,7 +123,7 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
                 </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-                <AnswerGrid game={game} currentRound={currentRound} playerTeam={playerTeam} />
+                <AnswerGrid game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} />
             </CardContent>
         </Card>
     </div>
