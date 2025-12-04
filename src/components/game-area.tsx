@@ -13,8 +13,6 @@ import { useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from './ui/badge';
-import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { useFirestore } from '@/firebase';
 
 interface GameAreaProps {
   game: Game;
@@ -46,6 +44,7 @@ export default function GameArea({ game, currentRound, playerTeam, onLetterRevea
     setIsSubmitting(true);
     
     try {
+      // The actual logic is now in game-client.tsx
       await onMainAnswerSubmit(values.answer);
       form.reset();
     } catch (error) {

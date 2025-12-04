@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, UnassignedLetterQuestion } from '@/lib/types';
+import { Game, Round, UnassignedLetterQuestion, GameStatus } from '@/lib/types';
 import { useRouter, useParams } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { serverTimestamp, doc, setDoc, runTransaction } from 'firebase/firestore';
@@ -68,8 +68,8 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
         <Card>
             <CardHeader>
                 <CardTitle>Letter-Reveal Questions</CardTitle>
-                <FormDescription>
-                    Provide a pool of questions for this round. The system will randomly assign them to the letters in the main answer ({lettersCount} letters).
+                 <FormDescription>
+                     Provide a pool of questions for this round. The system will randomly pick {lettersCount} questions for the letters in the main answer.
                 </FormDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
@@ -77,7 +77,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                     <div key={field.id} className="relative p-4 border rounded-md">
                         {index > 0 && <Separator className='absolute -top-3 left-0 w-full' />}
                         <h3 className="text-lg font-semibold mb-4">
-                           Question Set {index + 1}
+                           Question Pool Item {index + 1}
                         </h3>
                          <Button
                             type="button"
@@ -124,7 +124,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                     size="sm"
                     onClick={() => append({ question: '', answer: '' })}
                 >
-                    <Plus className="mr-2 h-4 w-4" /> Add Question
+                    <Plus className="mr-2 h-4 w-4" /> Add Question to Pool
                 </Button>
             </CardContent>
         </Card>
@@ -153,21 +153,8 @@ export default function EditGamePage() {
 
     useEffect(() => {
         if (game) {
-            // Check if game.rounds is an array before mapping
             if (Array.isArray(game.rounds)) {
                 const formRounds = game.rounds.map(r => {
-                    // Because unassignedLetterQuestions are not stored, we just create empty ones
-                    // based on the length of the main answer for initial display.
-                    const answerLettersCount = r.mainAnswer.replace(/\s/g, '').length;
-                    
-                    const unassignedLetterQuestions: UnassignedLetterQuestion[] = Array.from({ length: answerLettersCount }, () => ({
-                        question: '',
-                        answer: '',
-                    }));
-
-                    // In a real scenario, you might want to fetch original unassigned questions if they were stored.
-                    // For this logic, we assume they are not persisted, so we can't repopulate them.
-                    
                     return {
                         mainQuestion: r.mainQuestion,
                         mainAnswer: r.mainAnswer,
@@ -176,7 +163,6 @@ export default function EditGamePage() {
                 });
                 form.reset({ rounds: formRounds });
             } else {
-                // Handle case where game.rounds is not an array (e.g. old data)
                 console.warn("Game rounds data is not in array format. Initializing empty form.");
                 form.reset({ rounds: [{ mainQuestion: '', mainAnswer: '', unassignedLetterQuestions: [] }] });
             }
@@ -198,7 +184,7 @@ export default function EditGamePage() {
                     title: 'Form is not valid',
                     description: 'Please fix the errors before exporting.',
                 });
-                console.error(validation.error.flatten().fieldErrors);
+                console.error("Form validation errors on export:", validation.error.flatten().fieldErrors);
                 return;
             }
 
@@ -212,8 +198,10 @@ export default function EditGamePage() {
             linkElement.click();
 
         } catch (error) {
-            console.error("Export failed", error);
-            toast({ variant: 'destructive', title: 'Export Failed', description: 'Could not export the game data.' });
+             if (error instanceof Error) {
+                console.error("Export failed", error);
+                toast({ variant: 'destructive', title: 'Export Failed', description: error.message });
+            }
         }
     }, [form, toast, gameId]);
     
@@ -235,7 +223,7 @@ export default function EditGamePage() {
                     form.reset(validation.data);
                     toast({ title: 'Game Imported!', description: 'Your game data has been loaded into the form.' });
                 } else {
-                    console.error(validation.error.flatten().fieldErrors);
+                    console.error("Import validation failed:", validation.error.flatten().fieldErrors);
                     throw new Error("JSON file structure is not valid.");
                 }
             } catch (err) {
@@ -273,12 +261,13 @@ export default function EditGamePage() {
                     }
                     
                     const shuffledQuestions = [...r.unassignedLetterQuestions].sort(() => Math.random() - 0.5);
+                    const questionsForRound = shuffledQuestions.slice(0, answerLetters.length);
 
                     const letterQuestionsMap: Round['letterQuestions'] = {};
                     const letterIndices: Record<string, number> = {};
 
                     answerLetters.forEach((letter, index) => {
-                        const questionData = shuffledQuestions[index];
+                        const questionData = questionsForRound[index];
                         const upperLetter = letter.toUpperCase();
                         const count = letterIndices[upperLetter] || 0;
                         const uniqueKey = `${upperLetter}_${count}`;
@@ -289,32 +278,49 @@ export default function EditGamePage() {
                         };
                     });
                     
+                    // Find the original round to preserve its dynamic state if it exists
+                    const originalRound = gameData.rounds.find(or => or.mainQuestion === r.mainQuestion);
+
                     return {
-                        ...gameData.rounds.find(or => or.mainQuestion === r.mainQuestion)!,
                         mainQuestion: r.mainQuestion,
                         mainAnswer: r.mainAnswer,
                         letterQuestions: letterQuestionsMap,
                         unassignedLetterQuestions: r.unassignedLetterQuestions,
-                        status: 'pending',
-                        currentPoints: 1000,
-                        team1RevealedLetters: [],
-                        team2RevealedLetters: [],
-                        winner: null,
+                        // Preserve dynamic state from original round, or set defaults
+                        status: originalRound?.status || 'pending',
+                        currentPoints: originalRound?.currentPoints ?? 1000,
+                        team1RevealedLetters: originalRound?.team1RevealedLetters || [],
+                        team2RevealedLetters: originalRound?.team2RevealedLetters || [],
+                        winner: originalRound?.winner || null,
                     };
                 });
                 
-                if (gameData.status === 'in_progress' || gameData.status === 'lobby') {
-                    if (newRounds[gameData.currentRoundIndex]) {
-                       newRounds[gameData.currentRoundIndex].status = 'in_progress';
-                    }
-                } else if (gameData.status === 'paused') {
-                     if (newRounds[gameData.currentRoundIndex]) {
-                       newRounds[gameData.currentRoundIndex].status = 'paused';
+                let gameStatus: GameStatus = gameData.status;
+
+                // Reset statuses if game is in lobby
+                if (gameStatus === 'lobby') {
+                     newRounds.forEach(r => r.status = 'pending');
+                }
+                
+                // Set the current round's status correctly
+                if (gameData.currentRoundIndex < newRounds.length) {
+                   if (gameStatus === 'in_progress' || gameStatus === 'lobby') {
+                        newRounds[gameData.currentRoundIndex].status = 'in_progress';
+                   } else if (gameStatus === 'paused') {
+                        newRounds[gameData.currentRoundIndex].status = 'paused';
+                   }
+                } else if (newRounds.length > 0) {
+                    // If current index is out of bounds, reset to 0
+                    gameData.currentRoundIndex = 0;
+                     if (gameStatus === 'in_progress' || gameStatus === 'lobby') {
+                        newRounds[0].status = 'in_progress';
                     }
                 }
 
+
                 transaction.update(gameDocRef, {
                     rounds: newRounds,
+                    currentRoundIndex: gameData.currentRoundIndex,
                     lastActivityAt: serverTimestamp(),
                 });
             });

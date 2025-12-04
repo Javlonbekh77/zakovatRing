@@ -20,7 +20,7 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, UnassignedLetterQuestion, AssignedLetterQuestion } from '@/lib/types';
+import { Game, Round, UnassignedLetterQuestion, AssignedLetterQuestion, GameStatus } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
@@ -82,7 +82,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
             <CardHeader>
                 <CardTitle>Letter-Reveal Questions</CardTitle>
                 <FormDescription>
-                    Provide a pool of questions for this round. The system will randomly assign them to the letters in the main answer ({lettersCount} letters).
+                     Provide a pool of questions for this round. The system will randomly pick {lettersCount} questions for the letters in the main answer.
                 </FormDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
@@ -90,7 +90,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                     <div key={field.id} className="relative p-4 border rounded-md">
                         {index > 0 && <Separator className='absolute -top-3 left-0 w-full' />}
                         <h3 className="text-lg font-semibold mb-4">
-                            Question Set {index + 1}
+                           Question Pool Item {index + 1}
                         </h3>
                          <Button
                             type="button"
@@ -137,7 +137,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                     size="sm"
                     onClick={() => append({ question: '', answer: '' })}
                 >
-                    <Plus className="mr-2 h-4 w-4" /> Add Question
+                    <Plus className="mr-2 h-4 w-4" /> Add Question to Pool
                 </Button>
             </CardContent>
         </Card>
@@ -179,7 +179,7 @@ export default function CreateGameForm() {
                     title: 'Form is not valid',
                     description: 'Please fix the errors before exporting.',
                 });
-                console.error(validation.error.flatten().fieldErrors);
+                console.error("Form validation errors on export:", validation.error.flatten().fieldErrors);
                 return;
             }
 
@@ -193,8 +193,10 @@ export default function CreateGameForm() {
             linkElement.click();
 
         } catch (error) {
-            console.error("Export failed", error);
-            toast({ variant: 'destructive', title: 'Export Failed', description: 'Could not export the game data.' });
+             if (error instanceof Error) {
+                console.error("Export failed", error);
+                toast({ variant: 'destructive', title: 'Export Failed', description: error.message });
+            }
         }
     }, [form, toast]);
     
@@ -216,7 +218,7 @@ export default function CreateGameForm() {
                     form.reset(validation.data);
                     toast({ title: 'Game Imported!', description: 'Your game data has been loaded into the form.' });
                 } else {
-                    console.error(validation.error.flatten().fieldErrors);
+                    console.error("Import validation failed:", validation.error.flatten().fieldErrors);
                     throw new Error("JSON file structure is not valid.");
                 }
             } catch (err) {
@@ -253,13 +255,16 @@ export default function CreateGameForm() {
                 // Shuffle questions for random assignment
                 const shuffledQuestions = [...r.unassignedLetterQuestions].sort(() => Math.random() - 0.5);
 
+                // Take only as many questions as there are letters
+                const questionsForRound = shuffledQuestions.slice(0, answerLetters.length);
+                
                 const letterQuestionsMap: Round['letterQuestions'] = {};
                 
                 // Keep track of used indices for duplicate letters
                 const letterIndices: Record<string, number> = {};
 
                 answerLetters.forEach((letter, index) => {
-                    const questionData = shuffledQuestions[index];
+                    const questionData = questionsForRound[index];
                     const upperLetter = letter.toUpperCase();
 
                     // For duplicate letters, create a unique key like 'A_0', 'A_1'
@@ -276,10 +281,12 @@ export default function CreateGameForm() {
                     mainQuestion: r.mainQuestion,
                     mainAnswer: r.mainAnswer,
                     letterQuestions: letterQuestionsMap,
+                    unassignedLetterQuestions: r.unassignedLetterQuestions, // Keep original pool for reference/editing
                     status: 'pending',
                     currentPoints: 1000,
                     team1RevealedLetters: [],
                     team2RevealedLetters: [],
+                    winner: null,
                 };
             });
 
@@ -289,7 +296,7 @@ export default function CreateGameForm() {
 
             const gameDocRef = doc(firestore, 'games', gameId);
 
-            const gameData = {
+            const gameData: Game = {
                 id: gameId,
                 creatorId: user.uid,
                 rounds: gameRounds,
@@ -297,6 +304,7 @@ export default function CreateGameForm() {
                 status: 'lobby' as GameStatus,
                 createdAt: serverTimestamp(),
                 lastActivityAt: serverTimestamp(),
+                // team1 and team2 are intentionally omitted, they will be added when players join
             };
             
 
