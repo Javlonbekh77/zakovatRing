@@ -74,6 +74,9 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
     useEffect(() => {
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
+        // Unregister old fields to prevent stale data issues on validation
+        form.unregister(`rounds.${roundIndex}.letterQuestions`);
+
         const existingFields = form.getValues(`rounds.${roundIndex}.letterQuestions`);
         const existingData: { [key: string]: { question: string, answer: string } } = {};
         if (Array.isArray(existingFields)) {
@@ -440,3 +443,5 @@ export default function CreateGameForm() {
         </Form>
     );
 }
+
+    

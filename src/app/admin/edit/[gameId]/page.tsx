@@ -50,7 +50,7 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-function LetterFields({ roundIndex, control }: { roundIndex: number, control: any }) {
+function LetterFields({ roundIndex, control, form }: { roundIndex: number, control: any, form: any }) {
     const mainAnswer: string = useWatch({
       control,
       name: `rounds.${roundIndex}.mainAnswer`,
@@ -65,6 +65,9 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
     React.useEffect(() => {
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         
+        // Unregister old fields to prevent stale data issues on validation
+        form.unregister(`rounds.${roundIndex}.letterQuestions`);
+
         // Preserve existing data if possible when answer changes
         const existingData: Record<string, {q: string, a: string}> = (fields as FormLetterQuestion[]).reduce((acc, field) => {
             if(field.letter && field.question && field.answer) {
@@ -79,7 +82,7 @@ function LetterFields({ roundIndex, control }: { roundIndex: number, control: an
             answer: existingData[letter]?.a || ''
         }));
         replace(newFields);
-    }, [mainAnswer, replace]);
+    }, [mainAnswer, replace, form, roundIndex]);
 
 
     if (!mainAnswer) {
@@ -452,7 +455,7 @@ export default function EditGamePage() {
                                                 </FormItem>
                                             )}
                                         />
-                                        <LetterFields roundIndex={index} control={form.control} />
+                                        <LetterFields roundIndex={index} control={form.control} form={form} />
                                     </AccordionContent>
                                 </AccordionItem>
                             ))}
@@ -509,3 +512,5 @@ export default function EditGamePage() {
         </div>
     );
 }
+
+    
