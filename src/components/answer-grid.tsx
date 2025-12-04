@@ -1,6 +1,6 @@
 'use client';
 
-import { Game, Round } from '@/lib/types';
+import { Game, Round, Team } from '@/lib/types';
 import * as z from 'zod';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { useState } from 'react';
@@ -16,6 +16,7 @@ interface AnswerGridProps {
   game: Game;
   currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
+  playerTeamData: Team | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
 }
 
@@ -30,12 +31,12 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
   const { toast } = useToast();
   const letterQuestion = currentRound.letterQuestions[letterKey];
 
+  if (!letterQuestion) return null;
+
   const form = useForm<z.infer<typeof letterAnswerSchema>>({
     resolver: zodResolver(letterAnswerSchema),
     defaultValues: { answer: '' },
   });
-
-  if (!letterQuestion) return null;
 
   const handleLetterSubmit = async (values: z.infer<typeof letterAnswerSchema>) => {
     if (!playerTeam) {
@@ -50,6 +51,10 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
 
         if (isCorrect) {
             await onLetterReveal(letterKey);
+            toast({
+                title: 'Correct!',
+                description: `The letter '${letter.toUpperCase()}' is revealed! You earned a small point bonus.`,
+              });
             setOpen(false);
         } else {
             toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. Try again." });
@@ -68,7 +73,7 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button disabled={!playerTeam || currentRound.status !== 'in_progress'} className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Reveal letter ${letter}`}>
+        <button disabled={!playerTeam} className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Reveal letter ${letter}`}>
           ?
         </button>
       </DialogTrigger>
@@ -104,17 +109,14 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
   );
 }
 
-const LETTER_REVEAL_REWARD = 10;
-
-export default function AnswerGrid({ game, currentRound, playerTeam, onLetterReveal }: AnswerGridProps) {
+export default function AnswerGrid({ game, currentRound, playerTeam, playerTeamData, onLetterReveal }: AnswerGridProps) {
   if (!currentRound?.mainAnswer) {
     return <div className='text-muted-foreground'>Answer grid not available.</div>;
   }
   
   const answerChars = currentRound.mainAnswer.split('');
-  
-  // Combine all revealed letters to show to everyone
-  const revealedLetters = [...new Set([...(currentRound.team1RevealedLetters || []), ...(currentRound.team2RevealedLetters || [])])];
+
+  const revealedLettersForRound = playerTeamData?.revealedLetters[playerTeamData.currentRoundIndex] || [];
     
   // Keep track of used indices for duplicate letters
   const letterIndices: Record<string, number> = {};
@@ -131,7 +133,7 @@ export default function AnswerGrid({ game, currentRound, playerTeam, onLetterRev
         const letterKey = `${upperChar}_${count}`;
         letterIndices[upperChar] = count + 1;
 
-        const isRevealed = revealedLetters.includes(letterKey);
+        const isRevealed = revealedLettersForRound.includes(letterKey);
 
         return (
           <div key={index}>
@@ -148,5 +150,3 @@ export default function AnswerGrid({ game, currentRound, playerTeam, onLetterRev
     </div>
   );
 }
-
-    

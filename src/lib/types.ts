@@ -3,6 +3,10 @@ import type { Timestamp } from 'firebase/firestore';
 export interface Team {
   name: string;
   score: number;
+  // Each team now tracks their own progress
+  currentRoundIndex: number;
+  // Revealed letters are now a record mapping round index to an array of letter keys
+  revealedLetters: Record<number, string[]>;
 }
 
 export interface AssignedLetterQuestion {
@@ -20,6 +24,7 @@ export interface Round {
   status: RoundStatus;
   winner?: 'team1' | 'team2' | null;
   currentPoints: number;
+  // These are now obsolete as each team tracks their own
   team1RevealedLetters: string[];
   team2RevealedLetters: string[];
 }
@@ -30,9 +35,10 @@ export interface Game {
   id: string;
   creatorId: string;
   rounds: Round[];
-  currentRoundIndex: number;
+  currentRoundIndex: number; // This can now be considered a "master" or spectator round index
   status: GameStatus;
   forfeitedBy?: 'team1' | 'team2';
+  winner?: 'team1' | 'team2' | null;
   team1?: Team;
   team2?: Team;
   createdAt: Timestamp;

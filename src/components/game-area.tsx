@@ -1,6 +1,6 @@
 'use client';
 
-import { Game, Round } from '@/lib/types';
+import { Game, Round, Team } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import AnswerGrid from './answer-grid';
 import { useForm } from 'react-hook-form';
@@ -19,6 +19,7 @@ interface GameAreaProps {
   currentRound: Round;
   localCurrentPoints: number;
   playerTeam: 'team1' | 'team2' | null;
+  playerTeamData: Team | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
   onMainAnswerSubmit: (answer: string) => Promise<void>;
 }
@@ -27,7 +28,7 @@ const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
+export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -77,7 +78,13 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                     </div>
                 </CardHeader>
                 <CardContent>
-                     <AnswerGrid game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} />
+                     <AnswerGrid 
+                        game={game} 
+                        currentRound={currentRound} 
+                        playerTeam={playerTeam} 
+                        playerTeamData={playerTeamData}
+                        onLetterReveal={onLetterReveal} 
+                     />
                 </CardContent>
             </Card>
             <Card className="shadow-lg">
@@ -94,13 +101,13 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                         render={({ field }) => (
                             <FormItem>
                             <FormControl>
-                                <Input placeholder="Type your final answer" {...field} disabled={isSubmitting || currentRound.status !== 'in_progress'} />
+                                <Input placeholder="Type your final answer" {...field} disabled={isSubmitting} />
                             </FormControl>
                             <FormMessage />
                             </FormItem>
                         )}
                         />
-                        <Button type="submit" disabled={isSubmitting || currentRound.status !== 'in_progress'} className='w-full'>
+                        <Button type="submit" disabled={isSubmitting} className='w-full'>
                             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send />}
                             Submit Final Answer
                         </Button>
@@ -115,5 +122,3 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
     </div>
   );
 }
-
-    

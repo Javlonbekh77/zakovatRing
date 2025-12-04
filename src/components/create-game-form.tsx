@@ -20,7 +20,7 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, AssignedLetterQuestion, GameStatus, FormLetterQuestion } from '@/lib/types';
+import { Game, Round, GameStatus, FormLetterQuestion, Team } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
@@ -53,8 +53,6 @@ type FormData = z.infer<typeof formSchema>;
 function generateGameCode(length: number): string {
     let result = '';
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    // Math.random is safe to use here as it's for a non-crypto purpose
-    // and doesn't need to be deferred until client-side mount.
     for (let i = 0; i < length; i++) {
         result += characters.charAt(Math.floor(Math.random() * characters.length));
     }
@@ -247,12 +245,7 @@ export default function CreateGameForm() {
         try {
             const gameId = generateGameCode(4);
 
-            const gameRounds: Round[] = values.rounds.map(r => {
-                 const answerLetters = r.mainAnswer.replace(/\s/g, '');
-                 if (answerLetters.length !== r.letterQuestions.length) {
-                     throw new Error(`Mismatch in round "${r.mainQuestion.substring(0,20)}...": The answer has ${answerLetters.length} letters, but ${r.letterQuestions.length} questions were provided.`);
-                 }
-                
+            const gameRounds: Omit<Round, 'team1RevealedLetters' | 'team2RevealedLetters'>[] = values.rounds.map(r => {
                 const letterQuestionsMap: Round['letterQuestions'] = {};
                 const letterIndices: Record<string, number> = {};
 
@@ -274,39 +267,24 @@ export default function CreateGameForm() {
                     letterQuestions: letterQuestionsMap,
                     status: 'pending',
                     currentPoints: 1000,
-                    team1RevealedLetters: [],
-                    team2RevealedLetters: [],
                     winner: null,
                 };
             });
-
-            if (gameRounds.length > 0) {
-                gameRounds[0].status = 'in_progress';
-            }
 
             const gameDocRef = doc(firestore, 'games', gameId);
 
             const gameData: Omit<Game, 'team1' | 'team2'> = {
                 id: gameId,
                 creatorId: user.uid,
-                rounds: gameRounds,
-                currentRoundIndex: 0,
+                rounds: gameRounds as Round[],
+                currentRoundIndex: 0, // Master index
                 status: 'lobby' as GameStatus,
                 createdAt: serverTimestamp(),
                 lastActivityAt: serverTimestamp(),
             };
             
 
-            await setDoc(gameDocRef, gameData).catch(error => {
-                 errorEmitter.emit(
-                    'permission-error',
-                    new FirestorePermissionError({
-                        path: gameDocRef.path,
-                        operation: 'create',
-                        requestResourceData: gameData
-                    })
-                )
-            });
+            await setDoc(gameDocRef, gameData);
 
             toast({
                 title: 'Game Created!',
@@ -316,7 +294,9 @@ export default function CreateGameForm() {
             router.push(`/admin/created/${gameId}`);
 
         } catch (error) {
-            if (error instanceof Error) {
+            if (error instanceof FirestorePermissionError) {
+                errorEmitter.emit('permission-error', error);
+            } else if (error instanceof Error) {
                 toast({
                     variant: 'destructive',
                     title: 'An unexpected error occurred',

@@ -206,6 +206,12 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
     const winner = useMemo(() => {
         const activeGame = game;
         if (activeGame.status !== 'finished' || !activeGame.team1 || !activeGame.team2) return null;
+        
+        const team1Finished = activeGame.team1?.currentRoundIndex === activeGame.rounds.length;
+        const team2Finished = activeGame.team2?.currentRoundIndex === activeGame.rounds.length;
+
+        if (!team1Finished || !team2Finished) return null;
+
         if (activeGame.forfeitedBy) {
           return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
         }
@@ -227,6 +233,9 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
       </Card>
     );
   }
+  
+  const team1Round = game.team1?.currentRoundIndex ?? 0;
+  const team2Round = game.team2?.currentRoundIndex ?? 0;
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
@@ -269,64 +278,80 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
         </Card>
       )}
 
-      <div className="space-y-4">
-        <h3 className="text-2xl font-bold text-center">Rounds Overview</h3>
-        {game.rounds.map((round, index) => (
-          <Card
-            key={index}
-            className={`border-l-4 ${
-              index === game.currentRoundIndex &&
-              (game.status === 'in_progress' || game.status === 'paused')
-                ? 'border-primary shadow-lg'
-                : 'border-border'
-            }`}
-          >
-            <CardHeader>
-              <div className="flex justify-between items-center">
-                <CardTitle>Round {index + 1}</CardTitle>
-                {round.status === 'finished' ? (
-                  <Badge variant="secondary">
-                    <CheckCircle2 className="mr-2" />
-                    Finished
-                  </Badge>
-                ) : game.status === 'in_progress' &&
-                  round.status === 'in_progress' ? (
-                  <Badge>
-                    <Circle className="mr-2 animate-pulse" />
-                    In Progress
-                  </Badge>
-                ) : (
-                  <Badge variant="outline">
-                    {round.status === 'paused' ? (
-                      <Pause className="mr-2" />
-                    ) : null}
-                    {round.status}
-                  </Badge>
-                )}
-              </div>
-              <CardDescription>{round.mainQuestion}</CardDescription>
-            </CardHeader>
-            {index === game.currentRoundIndex &&
-              (game.status === 'in_progress' || game.status === 'paused') && (
-                <CardContent>
-                  <p className="text-lg font-bold font-mono text-primary">
-                    {round.currentPoints} points remaining
-                  </p>
-                </CardContent>
-              )}
-            {round.winner && game[round.winner] && (
-              <CardFooter>
-                <div className="text-sm text-muted-foreground flex items-center">
-                  <Award className="mr-2 h-4 w-4 text-yellow-500" />
-                  Winner:{' '}
-                  <span className="font-bold text-foreground ml-1">
-                    {game[round.winner]?.name}
-                  </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Team 1 Progress */}
+        <div className="space-y-2">
+            <h3 className="text-2xl font-bold text-center">{game.team1?.name || 'Team 1'}</h3>
+            {game.rounds.map((round, index) => (
+            <Card
+                key={`t1-${index}`}
+                className={`border-l-4 ${
+                index === team1Round && game.status === 'in_progress'
+                    ? 'border-primary shadow-lg'
+                    : 'border-border'
+                }`}
+            >
+                <CardHeader>
+                <div className="flex justify-between items-center">
+                    <CardTitle>Round {index + 1}</CardTitle>
+                    { index < team1Round ? (
+                    <Badge variant="secondary">
+                        <CheckCircle2 className="mr-2" />
+                        Finished
+                    </Badge>
+                    ) : index === team1Round && game.status === 'in_progress' ? (
+                    <Badge>
+                        <Circle className="mr-2 animate-pulse" />
+                        In Progress
+                    </Badge>
+                    ) : (
+                    <Badge variant="outline">
+                        Pending
+                    </Badge>
+                    )}
                 </div>
-              </CardFooter>
-            )}
-          </Card>
-        ))}
+                <CardDescription>{round.mainQuestion}</CardDescription>
+                </CardHeader>
+            </Card>
+            ))}
+        </div>
+
+        {/* Team 2 Progress */}
+        <div className="space-y-2">
+            <h3 className="text-2xl font-bold text-center">{game.team2?.name || 'Team 2'}</h3>
+            {game.rounds.map((round, index) => (
+            <Card
+                key={`t2-${index}`}
+                className={`border-l-4 ${
+                index === team2Round && game.status === 'in_progress'
+                    ? 'border-primary shadow-lg'
+                    : 'border-border'
+                }`}
+            >
+                <CardHeader>
+                <div className="flex justify-between items-center">
+                    <CardTitle>Round {index + 1}</CardTitle>
+                    { index < team2Round ? (
+                    <Badge variant="secondary">
+                        <CheckCircle2 className="mr-2" />
+                        Finished
+                    </Badge>
+                    ) : index === team2Round && game.status === 'in_progress' ? (
+                    <Badge>
+                        <Circle className="mr-2 animate-pulse" />
+                        In Progress
+                    </Badge>
+                    ) : (
+                    <Badge variant="outline">
+                        Pending
+                    </Badge>
+                    )}
+                </div>
+                <CardDescription>{round.mainQuestion}</CardDescription>
+                </CardHeader>
+            </Card>
+            ))}
+        </div>
       </div>
 
       <Button asChild className="w-full mt-8">
@@ -353,9 +378,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
   
-  // Local state for the game, this is where all the "optimistic" updates will happen.
   const [localGame, setLocalGame] = useState<Game | null>(null);
-  // Separate state to track if we're doing a background database write.
   const [isSyncing, setIsSyncing] = useState(false);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
@@ -364,9 +387,14 @@ export default function GameClient({ gameId }: GameClientProps) {
   // Effect to initialize or update localGame when the server-side game state changes.
   useEffect(() => {
     if (game) {
-      setLocalGame(game);
+      // Always sync the local game with the server state if not in the middle of an individual round.
+      // This ensures that when one player finishes, the other player's view is updated correctly.
+      if (!localGame || game.status !== 'in_progress' || localGame.status !== 'in_progress') {
+        setLocalGame(game);
+      }
     }
-  }, [game]);
+  }, [game]); // Removed localGame from dependency array
+
 
   // Effect for joining the game.
   useEffect(() => {
@@ -382,7 +410,7 @@ export default function GameClient({ gameId }: GameClientProps) {
                 }
                 const gameData = gameSnap.data() as Game;
 
-                // Check if already part of a team
+                // Check if already part of a team by name (more robust than ID)
                 if (gameData.team1?.name === teamNameFromUrl) {
                     setPlayerTeam('team1'); return;
                 }
@@ -393,6 +421,13 @@ export default function GameClient({ gameId }: GameClientProps) {
                 if (gameData.status !== 'lobby') {
                     toast({ variant: 'destructive', title: 'Game has already started or is full.' }); return;
                 }
+                
+                const newTeamData = { 
+                  name: teamNameFromUrl, 
+                  score: 0, 
+                  currentRoundIndex: 0,
+                  revealedLetters: {}
+                };
 
                 let newTeamSlot: 'team1' | 'team2' | null = null;
                 if (!gameData.team1) {
@@ -403,7 +438,7 @@ export default function GameClient({ gameId }: GameClientProps) {
 
                 if (newTeamSlot) {
                     const updateData: any = {
-                        [`${newTeamSlot}`]: { name: teamNameFromUrl, score: 0 },
+                        [`${newTeamSlot}`]: newTeamData,
                         lastActivityAt: serverTimestamp(),
                     };
                     if (newTeamSlot === 'team2') {
@@ -432,7 +467,7 @@ export default function GameClient({ gameId }: GameClientProps) {
 
     const timer = setInterval(() => {
       setLocalGame(prevGame => {
-        if (!prevGame || prevGame.status !== 'in_progress') return prevGame;
+        if (!prevGame || !Array.isArray(prevGame.rounds) || prevGame.status !== 'in_progress') return prevGame;
 
         const updatedRounds = [...prevGame.rounds];
         const currentRound = updatedRounds[prevGame.currentRoundIndex];
@@ -454,22 +489,23 @@ export default function GameClient({ gameId }: GameClientProps) {
       if (!playerTeam || !localGame) return;
   
       setLocalGame(prevGame => {
-        if (!prevGame) return null;
-  
-        const newGame = { ...prevGame };
-        const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
-        const currentRoundIndex = newGame.currentRoundIndex;
-  
-        const updatedRounds = [...newGame.rounds];
-        const roundToUpdate = { ...updatedRounds[currentRoundIndex] };
-        roundToUpdate[revealedLettersKey] = [...roundToUpdate[revealedLettersKey], letterKey];
-        updatedRounds[currentRoundIndex] = roundToUpdate;
+        if (!prevGame || !prevGame[playerTeam]) return null;
         
-        if (newGame[playerTeam]) {
-            newGame[playerTeam]!.score += LETTER_REVEAL_REWARD;
-        }
+        const currentRoundIndex = prevGame[playerTeam]!.currentRoundIndex;
   
-        return { ...newGame, rounds: updatedRounds };
+        const newGame = { 
+            ...prevGame,
+            [playerTeam]: {
+                ...prevGame[playerTeam]!,
+                score: prevGame[playerTeam]!.score + LETTER_REVEAL_REWARD,
+                revealedLetters: {
+                    ...prevGame[playerTeam]!.revealedLetters,
+                    [currentRoundIndex]: [...(prevGame[playerTeam]!.revealedLetters[currentRoundIndex] || []), letterKey]
+                }
+            }
+        };
+        
+        return newGame;
       });
   
       toast({
@@ -486,82 +522,68 @@ export default function GameClient({ gameId }: GameClientProps) {
         throw new Error('Game state is not ready for submission.');
       }
       
-      const currentRound = localGame.rounds[localGame.currentRoundIndex];
+      const teamData = localGame[playerTeam];
+      if (!teamData) return;
+
+      const currentRound = localGame.rounds[teamData.currentRoundIndex];
       const isCorrect = currentRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
       if (isCorrect) {
-          const isLastRound = localGame.currentRoundIndex === localGame.rounds.length - 1;
+          const pointsFromRound = currentRound.currentPoints;
+          const nextRoundIndex = teamData.currentRoundIndex + 1;
+          const isLastRoundForPlayer = nextRoundIndex === localGame.rounds.length;
 
           setLocalGame(prevGame => {
-              if (!prevGame) return null;
+              if (!prevGame || !prevGame[playerTeam]) return null;
               
-              const newGame = { ...prevGame };
-              const updatedRounds = [...newGame.rounds];
-              const roundToUpdate = {...updatedRounds[newGame.currentRoundIndex]};
-
-              const pointsFromRound = roundToUpdate.currentPoints;
-              if (newGame[playerTeam]) {
-                  newGame[playerTeam]!.score += pointsFromRound;
-              }
-
-              roundToUpdate.status = 'finished';
-              roundToUpdate.winner = playerTeam;
-              updatedRounds[newGame.currentRoundIndex] = roundToUpdate;
-              
-              if(isLastRound) {
-                  newGame.status = 'finished';
-              } else {
-                  newGame.currentRoundIndex += 1;
-                  // Immediately set next round to in_progress for a seamless transition
-                  if(updatedRounds[newGame.currentRoundIndex]){
-                      updatedRounds[newGame.currentRoundIndex].status = 'in_progress';
+              return { 
+                  ...prevGame,
+                  [playerTeam]: {
+                      ...prevGame[playerTeam]!,
+                      score: prevGame[playerTeam]!.score + pointsFromRound,
+                      currentRoundIndex: nextRoundIndex,
                   }
-              }
-
-              return { ...newGame, rounds: updatedRounds };
+              };
           });
           
           toast({
-            title: `Correct! Round ${localGame.currentRoundIndex + 1} finished.`,
+            title: `Correct! Round ${teamData.currentRoundIndex + 1} finished.`,
             description: `Your team gets ${currentRound.currentPoints} points.`,
           });
 
-          // Only sync with Firestore at the very end of the game
-          if (isLastRound) {
-              setIsSyncing(true); // Show syncing indicator
+          if (isLastRoundForPlayer) {
+              setIsSyncing(true);
               runTransaction(firestore, async (transaction) => {
-                  const finalGameData = { ...localGame };
-                  
-                  // Update the final score and status in the copied object before writing
-                  if(finalGameData[playerTeam]){
-                      finalGameData[playerTeam]!.score += currentRound.currentPoints;
-                  }
-                  finalGameData.status = 'finished';
-                  finalGameData.rounds[finalGameData.currentRoundIndex].status = 'finished';
-                  finalGameData.rounds[finalGameData.currentRoundIndex].winner = playerTeam;
+                  const gameSnap = await transaction.get(gameDocRef);
+                  if (!gameSnap.exists()) throw new Error("Game not found during final sync");
+                  const serverGame = gameSnap.data() as Game;
 
-                  transaction.update(gameDocRef, {
-                      status: 'finished',
-                      team1: finalGameData.team1,
-                      team2: finalGameData.team2,
-                      rounds: finalGameData.rounds,
-                      lastActivityAt: serverTimestamp(),
-                  });
+                  const finalScore = teamData.score + pointsFromRound;
+
+                  const finalUpdate: any = {
+                      [`${playerTeam}.score`]: finalScore,
+                      [`${playerTeam}.currentRoundIndex`]: nextRoundIndex,
+                  };
+                  
+                  const otherTeam = playerTeam === 'team1' ? 'team2' : 'team1';
+                  if (serverGame[otherTeam] && serverGame[otherTeam]!.currentRoundIndex === localGame.rounds.length) {
+                     finalUpdate.status = 'finished';
+                  }
+
+                  transaction.update(gameDocRef, finalUpdate);
               }).catch(e => {
                   console.error("Failed to sync final game state:", e);
                   toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save final game result. Please check your connection.'})
               }).finally(() => {
-                  setIsSyncing(false); // Hide syncing indicator
+                  setIsSyncing(false);
               });
           }
         
       } else {
-         // Optimistically update the score locally for the penalty
          setLocalGame(prevGame => {
             if (!prevGame || !prevGame[playerTeam]) return null;
             const newScore = prevGame[playerTeam]!.score - INCORRECT_ANSWER_PENALTY;
-            const newTeamData = { ...prevGame[playerTeam]!, score: newScore };
-            return {...prevGame, [playerTeam]: newTeamData };
+            return {...prevGame, [playerTeam]: { ...prevGame[playerTeam]!, score: newScore } };
         });
 
         toast({
@@ -600,27 +622,33 @@ export default function GameClient({ gameId }: GameClientProps) {
     }
   };
   
-  const activeGame = localGame; // Use localGame as the primary source of truth for the UI
+  const activeGame = localGame; 
 
-  // Determine winner based on the final localGame state
   const winner = useMemo(() => {
-    if (!activeGame || activeGame.status !== 'finished' || !activeGame.team1 || !activeGame.team2) return null;
+    if (!activeGame || activeGame.status !== 'finished') return null;
     if (activeGame.forfeitedBy) {
         return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
     }
-    if (activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
-    if (activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
+    if (activeGame.team1 && activeGame.team2 && activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
+    if (activeGame.team1 && activeGame.team2 && activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
     return null; // Draw
   }, [activeGame]);
+  
+  const playerTeamData = useMemo(() => {
+    if (!activeGame || !playerTeam) return null;
+    return activeGame[playerTeam];
+  }, [activeGame, playerTeam]);
+
+  const currentRoundIndexForPlayer = playerTeamData?.currentRoundIndex ?? -1;
 
   const currentRound = useMemo(() => {
-    if (!activeGame || !Array.isArray(activeGame.rounds) || activeGame.currentRoundIndex >= activeGame.rounds.length) {
+    if (!activeGame || !Array.isArray(activeGame.rounds) || currentRoundIndexForPlayer >= activeGame.rounds.length || currentRoundIndexForPlayer < 0) {
       return null;
     }
-    return activeGame.rounds[activeGame.currentRoundIndex];
-  }, [activeGame]);
+    return activeGame.rounds[currentRoundIndexForPlayer];
+  }, [activeGame, currentRoundIndexForPlayer]);
 
-  // Initial loading state while waiting for data from Firestore
+
   if (isLoading || !activeGame) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
@@ -632,7 +660,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     );
   }
 
-  // Handle Firestore errors
   if (error) {
     return (
       <Card className="w-full max-w-md m-auto">
@@ -650,7 +677,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     );
   }
   
-  // Handle case where game ID is invalid
   if (!game) { 
     return (
        <Card className="w-full max-w-md m-auto">
@@ -667,11 +693,34 @@ export default function GameClient({ gameId }: GameClientProps) {
     )
   }
   
-  // Render spectator view if not a player
   const isSpectator = !teamNameFromUrl;
   if (isSpectator) {
-    // Spectator view should use the real-time data from Firestore, not the local state.
     return <SpectatorView game={game} user={user} />;
+  }
+  
+  const hasPlayerFinished = currentRoundIndexForPlayer >= activeGame.rounds.length;
+
+  if (hasPlayerFinished) {
+      const bothFinished = activeGame.team1?.currentRoundIndex === activeGame.rounds.length && activeGame.team2?.currentRoundIndex === activeGame.rounds.length;
+
+      if (bothFinished && activeGame.status !== 'finished') {
+          // This should trigger a server-side update to finalize the game
+           if (firestore && gameDocRef) {
+              updateDoc(gameDocRef, { status: 'finished', lastActivityAt: serverTimestamp() });
+           }
+      }
+
+      return (
+        <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
+            <CardHeader>
+                <CardTitle>You've Finished!</CardTitle>
+                <CardDescription>Waiting for the other team to finish to see the final results.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+            </CardContent>
+        </Card>
+      );
   }
   
   // Game Finished View
@@ -771,7 +820,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     );
   }
 
-  // If there's no current round, it's an intermediate state (e.g., between rounds), so show a loader.
   if (!currentRound) {
     return (
         <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
@@ -799,7 +847,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         <span>
           Round:{' '}
           <strong className="font-mono">
-            {activeGame.currentRoundIndex + 1} / {activeGame.rounds.length}
+            {currentRoundIndexForPlayer + 1} / {activeGame.rounds.length}
           </strong>
         </span>
       </div>
@@ -814,6 +862,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         currentRound={currentRound}
         localCurrentPoints={currentRound.currentPoints}
         playerTeam={playerTeam}
+        playerTeamData={playerTeamData}
         onLetterReveal={handleLetterReveal}
         onMainAnswerSubmit={handleMainAnswerSubmit}
       />
@@ -843,10 +892,6 @@ export default function GameClient({ gameId }: GameClientProps) {
             </AlertDialog>
           </div>
       )}
-
-      {user?.uid === activeGame.creatorId && (
-        <AdminControls game={activeGame} user={user} />
-       )}
     </div>
   );
 }

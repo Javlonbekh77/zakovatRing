@@ -20,6 +20,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { useFirestore, useUser } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { Skeleton } from './ui/skeleton';
+import type { Game } from '@/lib/types';
 
 const formSchema = z.object({
   gameCode: z
@@ -70,8 +71,24 @@ export default function JoinGameForm() {
         return;
       }
       
-      // Redirect to the game page with team name as a query parameter.
-      // The game page will handle the logic of assigning the team slot.
+      const gameData = gameSnap.data() as Game;
+
+      if (gameData.status !== 'lobby') {
+        if (
+          gameData.team1?.name !== values.teamName &&
+          gameData.team2?.name !== values.teamName
+        ) {
+            toast({
+                variant: 'destructive',
+                title: 'Game in Progress',
+                description: 'This game has already started and cannot be joined.',
+            });
+            setIsSubmitting(false);
+            return;
+        }
+      }
+
+
       router.push(`/game/${gameId.toUpperCase()}?teamName=${encodeURIComponent(values.teamName)}`);
 
     } catch (error) {
