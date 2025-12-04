@@ -22,6 +22,7 @@ import {
   Award,
   CheckCircle2,
   Circle,
+  Home,
 } from 'lucide-react';
 import Scoreboard from './scoreboard';
 import GameArea from './game-area';
@@ -103,36 +104,6 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
     }
   };
 
-  const adjustScore = async (
-    teamId: 'team1' | 'team2',
-    amount: number,
-    reason: string
-  ) => {
-    if (!firestore || !game[teamId]) return;
-    const gameDocRef = doc(firestore, 'games', game.id);
-    try {
-      await runTransaction(firestore, async (transaction) => {
-        const gameSnap = await transaction.get(gameDocRef);
-        if (!gameSnap.exists()) throw new Error('Game does not exist.');
-        const currentGame = gameSnap.data() as Game;
-        const currentTeam = currentGame[teamId];
-        if (!currentTeam) throw new Error('Team does not exist.');
-
-        transaction.update(gameDocRef, {
-          [`${teamId}.score`]: currentTeam.score + amount,
-          lastActivityAt: serverTimestamp(),
-        });
-      });
-      toast({
-        title: 'Score Adjusted',
-        description: `${game[teamId]?.name}'s score was adjusted by ${amount} for: ${reason}`,
-      });
-    } catch (e) {
-      if (e instanceof Error)
-        toast({ variant: 'destructive', title: 'Error', description: e.message });
-    }
-  };
-
   const disqualifyTeam = async (teamId: 'team1' | 'team2') => {
     if (!firestore || !game[teamId]) return;
     const gameDocRef = doc(firestore, 'games', game.id);
@@ -140,7 +111,7 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
       await runTransaction(firestore, async (transaction) => {
         transaction.update(gameDocRef, {
           status: 'finished',
-          winner: teamId === 'team1' ? 'team2' : 'team1', // Forfeit logic is handled differently, this is direct DQ
+          winner: teamId === 'team1' ? 'team2' : 'team1',
           forfeitedBy: teamId,
           lastActivityAt: serverTimestamp(),
         });
@@ -225,34 +196,6 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <Button
-          variant="secondary"
-          onClick={() => adjustScore('team1', 100, 'Bonus')}
-          disabled={!game.team1}
-        >
-          +100 {game.team1?.name || 'Team 1'}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => adjustScore('team1', -50, 'Penalty')}
-          disabled={!game.team1}
-        >
-          -50 {game.team1?.name || 'Team 1'}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => adjustScore('team2', 100, 'Bonus')}
-          disabled={!game.team2}
-        >
-          +100 {game.team2?.name || 'Team 2'}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => adjustScore('team2', -50, 'Penalty')}
-          disabled={!game.team2}
-        >
-          -50 {game.team2?.name || 'Team 2'}
-        </Button>
       </CardContent>
     </Card>
   );
@@ -262,7 +205,7 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
     const winner = useMemo(() => {
         if (game.status !== 'finished' || !game.team1 || !game.team2) return null;
         if (game.forfeitedBy) {
-        return game.forfeitedBy === 'team1' ? game.team2 : game.team1;
+          return game.forfeitedBy === 'team1' ? game.team2 : game.team1;
         }
         if (game.team1.score > game.team2.score) return game.team1;
         if (game.team2.score > game.team1.score) return game.team2;
@@ -271,7 +214,16 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
 
 
   if (!Array.isArray(game.rounds)) {
-    return <div>Round data is in an invalid format. Cannot display overview.</div>;
+    return (
+      <Card className="w-full text-center p-8 shadow-xl">
+        <CardHeader>
+          <CardTitle className="text-destructive">Invalid Game Data</CardTitle>
+          <CardDescription>
+            Round data is missing or in an invalid format. Cannot display overview.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
   }
 
   const currentRound = game.rounds[game.currentRoundIndex];
@@ -402,7 +354,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
-  
+
   const winner = useMemo(() => {
     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
     if (game.forfeitedBy) {
@@ -420,7 +372,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     return game.rounds[game.currentRoundIndex];
   }, [game]);
 
-  // This hook determines the player's team
   useEffect(() => {
     const isSpectator = window.location.pathname.includes('/spectate');
     if (isSpectator) {
@@ -453,15 +404,12 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
   }, [gameId, searchParams, assignedTeam]);
 
-  // Timer effect to decrement points.
-  // This now runs only for the creator to avoid multiple clients writing to the DB.
   useEffect(() => {
     if (game?.status !== 'in_progress' || !currentRound || user?.uid !== game.creatorId) {
       return;
     }
 
     const timer = setInterval(() => {
-      // Admin's client is responsible for updating the points in Firestore
       if (gameDocRef && firestore) {
         runTransaction(firestore, async (transaction) => {
           const gameSnap = await transaction.get(gameDocRef);
@@ -504,13 +452,13 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           const gameSnap = await transaction.get(gameDocRef);
           if (!gameSnap.exists()) throw new Error('Game not found');
           const currentGame = gameSnap.data() as Game;
-		  const currentRoundIndex = currentGame.currentRoundIndex;
-		  const round = currentGame.rounds[currentRoundIndex];
+		      const currentRoundIndex = currentGame.currentRoundIndex;
+		      const round = currentGame.rounds[currentRoundIndex];
 
-		  if (round.status !== 'in_progress') {
-			toast({ title: "Round Over", description: "This round has already finished." });
-			return;
-		  }
+          if (round.status !== 'in_progress') {
+            toast({ title: "Round Over", description: "This round has already finished." });
+            return;
+          }
 
           const revealedLettersKey =
             playerTeam === 'team1'
@@ -573,14 +521,14 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
           if (isCorrect) {
-            const finalPoints = serverRound.currentPoints; // Points at the moment of correct answer
+            const finalPoints = serverRound.currentPoints;
             const finalTeamScore = (serverGame[playerTeam]?.score || 0) + finalPoints;
 
             const updateData: any = {
               lastActivityAt: serverTimestamp(),
               [`rounds.${serverGame.currentRoundIndex}.status`]: 'finished',
               [`rounds.${serverGame.currentRoundIndex}.winner`]: playerTeam,
-              [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: finalPoints, // Save the final points
+              [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: finalPoints,
               [`${playerTeam}.score`]: finalTeamScore,
             };
 
@@ -601,7 +549,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
               description: `Your team gets ${finalPoints} points.`,
             });
           } else {
-            // Incorrect Answer
             const newScore =
               (serverGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
             transaction.update(gameDocRef, {
@@ -652,8 +599,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   };
 
 
-  // --- Render Logic ---
-
   if (isLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
@@ -667,43 +612,45 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   if (error) {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md m-auto">
         <CardHeader>
-          <CardTitle>Error</CardTitle>
+          <CardTitle className="text-destructive">Error Loading Game</CardTitle>
+          <CardDescription>Could not load game data. Please try again later.</CardDescription>
         </CardHeader>
         <CardContent>{error.message}</CardContent>
+         <CardFooter>
+            <Button asChild className="w-full">
+                <Link href="/"><Home className="mr-2 h-4 w-4" /> Go to Home</Link>
+            </Button>
+        </CardFooter>
       </Card>
     );
   }
   
   if (!game) {
     return (
-       <Card className="w-full max-w-md">
+       <Card className="w-full max-w-md m-auto">
         <CardHeader>
-          <CardTitle>Game not found</CardTitle>
+          <CardTitle>Game Not Found</CardTitle>
+          <CardDescription>The game with ID <span className='font-mono font-bold'>{gameId}</span> does not exist or has been deleted.</CardDescription>
         </CardHeader>
-        <CardContent>
-            <p>The game with ID <span className='font-mono font-bold'>{gameId}</span> does not exist or has been deleted.</p>
-        </CardContent>
          <CardFooter>
             <Button asChild className="w-full">
-                <Link href="/">Back to Home</Link>
+                <Link href="/"><Home className="mr-2 h-4 w-4" /> Go to Home</Link>
             </Button>
         </CardFooter>
       </Card>
     )
   }
 
-  // Spectator View
   const isSpectator = !playerTeam;
   if (isSpectator) {
     return <SpectatorView game={game} user={user} />;
   }
 
-  // Player Views based on game status
   if (game.status === 'lobby') {
     return (
-      <Card className="w-full max-w-lg text-center p-8 shadow-xl">
+      <Card className="w-full max-w-lg text-center p-8 shadow-xl m-auto">
         <CardHeader>
           <div className="mx-auto w-fit rounded-full bg-primary/10 p-4 mb-4">
             <Users className="h-12 w-12 text-primary" />
@@ -745,7 +692,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   
   if (game.status === 'finished') {
     return (
-      <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
+      <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
         <div className="mx-auto w-fit rounded-full bg-yellow-100 p-4 dark:bg-yellow-900/50 mb-4">
           <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />
         </div>
@@ -791,8 +738,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
 
   // This is the main "in_progress" render block.
-  // If we have game data, but the currentRound isn't calculated yet (e.g., during transition),
-  // show a loader instead of crashing or showing a stale "Loading..." message.
   if (!currentRound) {
      return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">

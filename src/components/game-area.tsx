@@ -65,7 +65,7 @@ export default function GameArea({ game, currentRound, playerTeam, onLetterRevea
                         <div>
                             <Badge variant="secondary" className="mb-2">Round Question</Badge>
                             <CardTitle className="font-headline text-2xl">
-                                The Question
+                                {currentRound.mainQuestion}
                             </CardTitle>
                         </div>
                         <div className='text-right flex-shrink-0'>

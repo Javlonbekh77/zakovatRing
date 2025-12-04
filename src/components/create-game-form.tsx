@@ -20,7 +20,7 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, UnassignedLetterQuestion, AssignedLetterQuestion, GameStatus } from '@/lib/types';
+import { Game, Round, AssignedLetterQuestion, GameStatus, FormLetterQuestion } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
@@ -29,7 +29,8 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { Skeleton } from './ui/skeleton';
 
-const unassignedLetterQuestionSchema = z.object({
+const letterQuestionSchema = z.object({
+  letter: z.string(),
   question: z.string().min(1, 'Question is required.'),
   answer: z.string().min(1, 'Answer is required.'),
 });
@@ -40,7 +41,7 @@ const roundSchema = z.object({
     .string()
     .min(1, 'Main answer is required.')
     .regex(/^[A-Z\s]+$/, 'Main answer can only contain uppercase letters and spaces.'),
-  unassignedLetterQuestions: z.array(unassignedLetterQuestionSchema).min(1, "At least one letter-reveal question is required."),
+  letterQuestions: z.array(letterQuestionSchema)
 });
 
 const formSchema = z.object({
@@ -49,67 +50,76 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-
 function generateGameCode(length: number): string {
     let result = '';
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    if (typeof window !== 'undefined') {
-        for (let i = 0; i < length; i++) {
-            result += characters.charAt(Math.floor(Math.random() * characters.length));
-        }
-    } else {
-        result = Array.from({length}, () => characters.charAt(Math.floor(Math.random() * characters.length))).join('');
+    // Math.random is safe to use here as it's for a non-crypto purpose
+    // and doesn't need to be deferred until client-side mount.
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
     }
     return result;
 }
 
-
 function LetterFields({ roundIndex, control, form }: { roundIndex: number, control: any, form: any }) {
-    const { fields, append, remove } = useFieldArray({
-        control,
-        name: `rounds.${roundIndex}.unassignedLetterQuestions`
-    });
-
     const mainAnswer: string = useWatch({
       control,
       name: `rounds.${roundIndex}.mainAnswer`,
+      defaultValue: ""
     }) || '';
     
-    const lettersCount = (mainAnswer).replace(/\s/g, '').length;
+    const { fields, replace } = useFieldArray({
+        control,
+        name: `rounds.${roundIndex}.letterQuestions`
+    });
+
+    useEffect(() => {
+        const answerLetters = mainAnswer.replace(/\s/g, '').split('');
+        const newFields: FormLetterQuestion[] = answerLetters.map(letter => ({
+            letter: letter,
+            question: '',
+            answer: ''
+        }));
+        replace(newFields);
+    }, [mainAnswer, replace]);
+
+    if (!mainAnswer) {
+        return (
+            <Card>
+                <CardHeader>
+                    <CardTitle>Letter-Reveal Questions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-muted-foreground">Please enter a Main Answer above to generate fields for letter-reveal questions.</p>
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <Card>
             <CardHeader>
                 <CardTitle>Letter-Reveal Questions</CardTitle>
                 <FormDescription>
-                     Provide a pool of questions for this round. The system will randomly pick {lettersCount} questions for the letters in the main answer.
+                    Provide one question for each letter in your main answer.
                 </FormDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
                 {fields.map((field, index) => (
                     <div key={field.id} className="relative p-4 border rounded-md">
                         {index > 0 && <Separator className='absolute -top-3 left-0 w-full' />}
-                        <h3 className="text-lg font-semibold mb-4">
-                           Question Pool Item {index + 1}
+                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                           Question for letter: <span className='font-mono text-2xl text-primary bg-primary/10 px-2 rounded-md'>{mainAnswer.replace(/\s/g, '')[index]}</span>
                         </h3>
-                         <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute top-2 right-2 text-destructive hover:bg-destructive/10"
-                            onClick={() => remove(index)}
-                        >
-                            <Trash className="h-4 w-4" />
-                        </Button>
                         <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                             <FormField
                                 control={control}
-                                name={`rounds.${roundIndex}.unassignedLetterQuestions.${index}.question`}
+                                name={`rounds.${roundIndex}.letterQuestions.${index}.question`}
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Question</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Question text`} {...field} />
+                                            <Input placeholder={`Question that reveals '${mainAnswer.replace(/\s/g, '')[index]}'`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -117,12 +127,12 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                             />
                             <FormField
                                 control={control}
-                                name={`rounds.${roundIndex}.unassignedLetterQuestions.${index}.answer`}
+                                name={`rounds.${roundIndex}.letterQuestions.${index}.answer`}
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Answer</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Answer text`} {...field} />
+                                            <Input placeholder={`Answer to the question`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -131,14 +141,6 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                         </div>
                     </div>
                 ))}
-                 <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => append({ question: '', answer: '' })}
-                >
-                    <Plus className="mr-2 h-4 w-4" /> Add Question to Pool
-                </Button>
             </CardContent>
         </Card>
     );
@@ -160,7 +162,7 @@ export default function CreateGameForm() {
     const form = useForm<FormData>({
         resolver: zodResolver(formSchema),
         defaultValues: {
-            rounds: [{ mainQuestion: '', mainAnswer: '', unassignedLetterQuestions: [{ question: '', answer: '' }] }],
+            rounds: [{ mainQuestion: '', mainAnswer: '', letterQuestions: [] }],
         },
     });
 
@@ -228,7 +230,6 @@ export default function CreateGameForm() {
             }
         };
         reader.readAsText(file);
-        // Reset file input to allow re-uploading the same file
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -247,41 +248,30 @@ export default function CreateGameForm() {
             const gameId = generateGameCode(4);
 
             const gameRounds: Round[] = values.rounds.map(r => {
-                 const answerLetters = (r.mainAnswer).replace(/\s/g, '').split('').filter(Boolean);
-                 if (answerLetters.length > r.unassignedLetterQuestions.length) {
-                     throw new Error(`Round with question "${r.mainQuestion.substring(0, 20)}..." requires at least ${answerLetters.length} letter-reveal questions, but only ${r.unassignedLetterQuestions.length} were provided.`);
+                 const answerLetters = r.mainAnswer.replace(/\s/g, '');
+                 if (answerLetters.length !== r.letterQuestions.length) {
+                     throw new Error(`Mismatch in round "${r.mainQuestion.substring(0,20)}...": The answer has ${answerLetters.length} letters, but ${r.letterQuestions.length} questions were provided.`);
                  }
-
-                // Shuffle questions for random assignment
-                const shuffledQuestions = [...r.unassignedLetterQuestions].sort(() => Math.random() - 0.5);
-
-                // Take only as many questions as there are letters
-                const questionsForRound = shuffledQuestions.slice(0, answerLetters.length);
                 
                 const letterQuestionsMap: Round['letterQuestions'] = {};
-                
-                // Keep track of used indices for duplicate letters
                 const letterIndices: Record<string, number> = {};
 
-                answerLetters.forEach((letter, index) => {
-                    const questionData = questionsForRound[index];
-                    const upperLetter = letter.toUpperCase();
-
-                    // For duplicate letters, create a unique key like 'A_0', 'A_1'
+                r.letterQuestions.forEach((lq) => {
+                    const upperLetter = lq.letter.toUpperCase();
                     const count = letterIndices[upperLetter] || 0;
                     const uniqueKey = `${upperLetter}_${count}`;
                     letterIndices[upperLetter] = count + 1;
 
                     letterQuestionsMap[uniqueKey] = { 
-                        question: questionData.question,
-                        answer: questionData.answer
+                        question: lq.question,
+                        answer: lq.answer
                     };
                 });
+
                 return {
                     mainQuestion: r.mainQuestion,
                     mainAnswer: r.mainAnswer,
                     letterQuestions: letterQuestionsMap,
-                    unassignedLetterQuestions: r.unassignedLetterQuestions, // Keep original pool for reference/editing
                     status: 'pending',
                     currentPoints: 1000,
                     team1RevealedLetters: [],
@@ -296,7 +286,7 @@ export default function CreateGameForm() {
 
             const gameDocRef = doc(firestore, 'games', gameId);
 
-            const gameData: Game = {
+            const gameData: Omit<Game, 'team1' | 'team2'> = {
                 id: gameId,
                 creatorId: user.uid,
                 rounds: gameRounds,
@@ -304,7 +294,6 @@ export default function CreateGameForm() {
                 status: 'lobby' as GameStatus,
                 createdAt: serverTimestamp(),
                 lastActivityAt: serverTimestamp(),
-                // team1 and team2 are intentionally omitted, they will be added when players join
             };
             
 
@@ -401,7 +390,7 @@ export default function CreateGameForm() {
                                                     autoComplete="off"
                                                 />
                                             </FormControl>
-                                            <FormDescription>The answer to the main question. Use only letters and spaces.</FormDescription>
+                                            <FormDescription>The answer to the main question. Use only uppercase letters and spaces.</FormDescription>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -415,7 +404,7 @@ export default function CreateGameForm() {
                 <Button
                     type="button"
                     variant="outline"
-                    onClick={() => append({ mainQuestion: '', mainAnswer: '', unassignedLetterQuestions: [] })}
+                    onClick={() => append({ mainQuestion: '', mainAnswer: '', letterQuestions: [] })}
                 >
                     <Plus className="mr-2 h-4 w-4" /> Add Round
                 </Button>
