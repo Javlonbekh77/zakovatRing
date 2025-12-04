@@ -17,7 +17,7 @@ import { Badge } from './ui/badge';
 interface GameAreaProps {
   game: Game;
   currentRound: Round;
-  localCurrentPoints: number; // Use local points passed from parent
+  localCurrentPoints: number;
   playerTeam: 'team1' | 'team2' | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
   onMainAnswerSubmit: (answer: string) => Promise<void>;
