@@ -16,7 +16,7 @@ interface AnswerGridProps {
   game: Game;
   currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
-  onLetterReveal: (letterKey: string) => void;
+  onLetterReveal: (letterKey: string) => Promise<void>;
 }
 
 const letterAnswerSchema = z.object({
@@ -24,7 +24,7 @@ const letterAnswerSchema = z.object({
 });
 
 
-function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLetterReveal }: { letter: string; letterKey: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letterKey: string) => void }) {
+function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLetterReveal }: { letter: string; letterKey: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letterKey: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -47,16 +47,10 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
     
     try {
         const isCorrect = letterQuestion.answer.toLowerCase().trim() === values.answer.toLowerCase().trim();
-        const teamRevealedLetters = currentRound[playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters'] || [];
 
         if (isCorrect) {
-            if (!teamRevealedLetters.includes(letterKey)) {
-                onLetterReveal(letterKey);
-                // The toast is moved to the parent to reflect the score change
-                setOpen(false);
-            } else {
-                toast({ title: "Already Revealed", description: `You have already revealed this letter.`});
-            }
+            await onLetterReveal(letterKey);
+            setOpen(false);
         } else {
             toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. Try again." });
         }
@@ -117,10 +111,8 @@ export default function AnswerGrid({ game, currentRound, playerTeam, onLetterRev
   
   const answerChars = currentRound.mainAnswer.split('');
   
-  // For players, show only their revealed letters. For spectators, show all revealed letters.
-  const revealedLetters = playerTeam 
-    ? (currentRound[playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters'] || [])
-    : [...new Set([...(currentRound.team1RevealedLetters || []), ...(currentRound.team2RevealedLetters || [])])];
+  // Combine all revealed letters to show to everyone
+  const revealedLetters = [...new Set([...(currentRound.team1RevealedLetters || []), ...(currentRound.team2RevealedLetters || [])])];
     
   // Keep track of used indices for duplicate letters
   const letterIndices: Record<string, number> = {};

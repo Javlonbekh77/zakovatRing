@@ -20,16 +20,15 @@ interface GameAreaProps {
   game: Game;
   currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
-  onLetterReveal: (letter: string, questionPoints: number) => void;
+  onLetterReveal: (letterKey: string) => Promise<void>;
   onMainAnswerSubmit: (answer: string) => Promise<void>;
-  localPoints: number | null;
 }
 
 const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-export default function GameArea({ game, currentRound, playerTeam, onLetterReveal, onMainAnswerSubmit, localPoints }: GameAreaProps) {
+export default function GameArea({ game, currentRound, playerTeam, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -72,7 +71,7 @@ export default function GameArea({ game, currentRound, playerTeam, onLetterRevea
                         </div>
                         <div className='text-right flex-shrink-0'>
                             <Badge variant="default" className="text-lg font-mono font-bold shadow-md">
-                            {localPoints !== null ? localPoints : currentRound.currentPoints} Points
+                            {currentRound.currentPoints} Points
                             </Badge>
                              <p className='text-xs text-muted-foreground mt-1'>Available</p>
                         </div>
