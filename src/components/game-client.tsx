@@ -403,9 +403,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   
-  // This state will hold the points locally for smooth UI updates
-  const [localPoints, setLocalPoints] = useState<number | null>(null);
-
   const winner = useMemo(() => {
     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
     if (game.forfeitedBy) {
@@ -455,14 +452,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
       );
     }
   }, [gameId, searchParams, assignedTeam]);
-
-  // Sync local points with the current round's points from Firestore
-  useEffect(() => {
-    if (currentRound) {
-        setLocalPoints(currentRound.currentPoints);
-    }
-  }, [currentRound]);
-
 
   // Timer effect to decrement points.
   // This now runs only for the creator to avoid multiple clients writing to the DB.
@@ -665,7 +654,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   // --- Render Logic ---
 
-  if (isLoading || !game) {
+  if (isLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
@@ -687,6 +676,24 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
   
+  if (!game) {
+    return (
+       <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Game not found</CardTitle>
+        </CardHeader>
+        <CardContent>
+            <p>The game with ID <span className='font-mono font-bold'>{gameId}</span> does not exist or has been deleted.</p>
+        </CardContent>
+         <CardFooter>
+            <Button asChild className="w-full">
+                <Link href="/">Back to Home</Link>
+            </Button>
+        </CardFooter>
+      </Card>
+    )
+  }
+
   // Spectator View
   const isSpectator = !playerTeam;
   if (isSpectator) {
@@ -784,6 +791,8 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
 
   // This is the main "in_progress" render block.
+  // If we have game data, but the currentRound isn't calculated yet (e.g., during transition),
+  // show a loader instead of crashing or showing a stale "Loading..." message.
   if (!currentRound) {
      return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
