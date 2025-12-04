@@ -135,6 +135,10 @@ function LetterDialog({ letter, game, currentRound, playerTeam }: { letter: stri
 }
 
 export default function AnswerGrid({ game, currentRound, playerTeam }: AnswerGridProps) {
+  if (!currentRound?.mainAnswer) {
+    return <div className='text-muted-foreground'>Answer grid not available.</div>;
+  }
+  
   const answerChars = currentRound.mainAnswer.split('');
   
   // For players, show only their revealed letters. For spectators, show all revealed letters.

@@ -9,11 +9,10 @@ import * as z from 'zod';
 import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from './ui/badge';
-import { cn } from '@/lib/utils';
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 
@@ -27,7 +26,7 @@ const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-const INCORRECT_ANSWER_PENALTY = 5;
+const INCORRECT_ANSWER_PENALTY = 50;
 
 export default function GameArea({ game, currentRound, playerTeam }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,6 +45,8 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
     }
 
     setIsSubmitting(true);
+    let toastMessage: { title: string, description: string, variant?: "default" | "destructive" } | null = null;
+    
     try {
       const gameDocRef = doc(firestore, 'games', game.id);
       
@@ -60,7 +61,7 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
           if (!team) throw new Error("Team data is missing");
       
           if (round.status !== 'in_progress') {
-            toast({ title: "Round Over", description: "This round has already finished." });
+            toastMessage = { title: "Round Over", description: "This round has already finished." };
             return;
           }
 
@@ -74,10 +75,10 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
               updateData[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
               updateData[`rounds.${currentGame.currentRoundIndex}.winner`] = playerTeam;
               
-              toast({
+              toastMessage = {
                 title: `Correct! Round ${currentGame.currentRoundIndex + 1} finished.`,
                 description: `Your team gets ${pointsWon} points.`,
-              });
+              };
 
               if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
                   updateData.currentRoundIndex = currentGame.currentRoundIndex + 1;
@@ -86,16 +87,20 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
                   updateData.status = 'finished';
               }
           } else {
-              updateData[teamScorePath] = team.score - INCORRECT_ANSWER_PENALTY;
-              toast({
+              updateData[teamScorePath] = Math.max(0, team.score - INCORRECT_ANSWER_PENALTY);
+              toastMessage = {
                 variant: 'destructive',
                 title: 'Incorrect Answer',
                 description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
-              });
+              };
           }
           
           transaction.update(gameDocRef, updateData);
       });
+
+      if (toastMessage) {
+        toast(toastMessage);
+      }
       form.reset();
 
     } catch (error) {
@@ -133,7 +138,7 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
                     </p>
                 </CardContent>
             </Card>
-            <Card className={cn("shadow-lg", playerTeam ? 'bg-card' : 'bg-muted')}>
+            <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle>Your Controls</CardTitle>
                 </CardHeader>
