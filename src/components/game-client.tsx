@@ -41,6 +41,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 
@@ -669,7 +670,8 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   if (isSpectator) {
     return <SpectatorView game={game} user={user} />;
   }
-
+  
+  // Player is in the game, but game hasn't started
   if (game.status === 'lobby') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-xl m-auto">
@@ -701,6 +703,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
+  // Player is in the game, and it is paused
   if (game.status === 'paused') {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
@@ -712,6 +715,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
   
+  // Game is finished
   if (game.status === 'finished') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
@@ -759,8 +763,9 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
-  if (game.status === 'in_progress' && !currentRound) {
-    return (
+  // Round is loading, but game is not (e.g. between rounds)
+  if (!currentRound && game.status === 'in_progress') {
+     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -770,6 +775,17 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
   
+  if (!currentRound) {
+     return (
+      <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+        <div className="flex flex-col items-center gap-4 text-lg text-destructive">
+          <AlertTriangle className="h-12 w-12" />
+          Could not determine the current round. The game data might be inconsistent.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-6xl mx-auto space-y-4">
       <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
@@ -788,16 +804,15 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         team2={game.team2}
         playerTeam={playerTeam}
       />
-      {currentRound && (
-        <GameArea
-          game={game}
-          currentRound={currentRound}
-          localCurrentPoints={localCurrentPoints}
-          playerTeam={playerTeam}
-          onLetterReveal={handleLetterReveal}
-          onMainAnswerSubmit={handleMainAnswerSubmit}
-        />
-      )}
+      
+      <GameArea
+        game={game}
+        currentRound={currentRound}
+        localCurrentPoints={localCurrentPoints}
+        playerTeam={playerTeam}
+        onLetterReveal={handleLetterReveal}
+        onMainAnswerSubmit={handleMainAnswerSubmit}
+      />
       <AlertDialog>
         <AlertDialogTrigger asChild>
           <Button variant="destructive" className="w-full">
