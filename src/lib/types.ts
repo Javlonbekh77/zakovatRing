@@ -22,8 +22,8 @@ export interface Round {
   // This will store the questions with their assigned letters once the round starts.
   // The key can be 'A_0', 'A_1' for duplicate letters.
   letterQuestions: Record<string, Omit<AssignedLetterQuestion, 'letter'>>;
-  // These are stored temporarily at creation, before being assigned.
-  unassignedLetterQuestions?: UnassignedLetterQuestion[];
+  // Pool of questions to be assigned randomly at the start of the round.
+  unassignedLetterQuestions: UnassignedLetterQuestion[];
   status: RoundStatus;
   winner?: 'team1' | 'team2' | null;
   currentPoints: number;

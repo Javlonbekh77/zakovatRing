@@ -41,7 +41,7 @@ const roundSchema = z.object({
     .string()
     .min(1, 'Main answer is required.')
     .regex(/^[A-Z\s]+$/, 'Main answer can only contain uppercase letters and spaces.'),
-  unassignedLetterQuestions: z.array(unassignedLetterQuestionSchema),
+  unassignedLetterQuestions: z.array(unassignedLetterQuestionSchema).min(1, "At least one letter-reveal question is required."),
 });
 
 const formSchema = z.object({
@@ -52,7 +52,7 @@ type FormData = z.infer<typeof formSchema>;
 
 
 function LetterFields({ roundIndex, control, form }: { roundIndex: number, control: any, form: any }) {
-    const { fields, replace } = useFieldArray({
+    const { fields, append, remove } = useFieldArray({
         control,
         name: `rounds.${roundIndex}.unassignedLetterQuestions`
     });
@@ -62,39 +62,32 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
       name: `rounds.${roundIndex}.mainAnswer`,
     }) || '';
     
-    const uniqueLettersCount = new Set((mainAnswer).replace(/\s/g, '').split('').filter(Boolean)).size;
-
-    useEffect(() => {
-        const currentFields = form.getValues(`rounds.${roundIndex}.unassignedLetterQuestions`);
-        const newFields: UnassignedLetterQuestion[] = Array.from({ length: uniqueLettersCount }, (_, i) => {
-            return currentFields[i] || { question: '', answer: '' };
-        });
-        replace(newFields);
-    }, [uniqueLettersCount, replace, form, roundIndex]);
-    
-    if (uniqueLettersCount === 0) {
-      return (
-         <p className='text-muted-foreground text-center py-4'>
-              Enter a main answer above to add letter-reveal questions.
-          </p>
-      )
-    }
+    const lettersCount = (mainAnswer).replace(/\s/g, '').length;
 
     return (
         <Card>
             <CardHeader>
                 <CardTitle>Letter-Reveal Questions</CardTitle>
                 <FormDescription>
-                    The main answer has {uniqueLettersCount} unique letter(s). Please provide {uniqueLettersCount} question(s). They will be randomly assigned to the letters.
+                    Provide a pool of questions for this round. The system will randomly assign them to the letters in the main answer ({lettersCount} letters).
                 </FormDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
                 {fields.map((field, index) => (
-                    <div key={field.id}>
-                        {index > 0 && <Separator className='mb-6' />}
+                    <div key={field.id} className="relative p-4 border rounded-md">
+                        {index > 0 && <Separator className='absolute -top-3 left-0 w-full' />}
                         <h3 className="text-lg font-semibold mb-4">
-                            Question Set {index + 1}
+                           Question Set {index + 1}
                         </h3>
+                         <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 text-destructive hover:bg-destructive/10"
+                            onClick={() => remove(index)}
+                        >
+                            <Trash className="h-4 w-4" />
+                        </Button>
                         <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                             <FormField
                                 control={control}
@@ -125,6 +118,14 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                         </div>
                     </div>
                 ))}
+                 <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => append({ question: '', answer: '' })}
+                >
+                    <Plus className="mr-2 h-4 w-4" /> Add Question
+                </Button>
             </CardContent>
         </Card>
     );
@@ -155,14 +156,22 @@ export default function EditGamePage() {
             // Check if game.rounds is an array before mapping
             if (Array.isArray(game.rounds)) {
                 const formRounds = game.rounds.map(r => {
-                    const unassignedLetterQuestions = Object.values(r.letterQuestions || {}).map(qData => ({
-                        question: qData.question,
-                        answer: qData.answer,
+                    // Because unassignedLetterQuestions are not stored, we just create empty ones
+                    // based on the length of the main answer for initial display.
+                    const answerLettersCount = r.mainAnswer.replace(/\s/g, '').length;
+                    
+                    const unassignedLetterQuestions: UnassignedLetterQuestion[] = Array.from({ length: answerLettersCount }, () => ({
+                        question: '',
+                        answer: '',
                     }));
+
+                    // In a real scenario, you might want to fetch original unassigned questions if they were stored.
+                    // For this logic, we assume they are not persisted, so we can't repopulate them.
+                    
                     return {
                         mainQuestion: r.mainQuestion,
                         mainAnswer: r.mainAnswer,
-                        unassignedLetterQuestions,
+                        unassignedLetterQuestions: r.unassignedLetterQuestions || [],
                     };
                 });
                 form.reset({ rounds: formRounds });
@@ -258,23 +267,34 @@ export default function EditGamePage() {
                 const gameData = gameSnap.data() as Game;
 
                 const newRounds: Round[] = values.rounds.map(r => {
-                    const uniqueLetters = [...new Set((r.mainAnswer).replace(/\s/g, '').split('').filter(Boolean))];
-                    if (uniqueLetters.length !== r.unassignedLetterQuestions.length) {
-                        throw new Error(`Round with question "${r.mainQuestion.substring(0, 20)}..." has a mismatch between unique letters (${uniqueLetters.length}) and provided questions (${r.unassignedLetterQuestions.length}).`);
+                    const answerLetters = (r.mainAnswer).replace(/\s/g, '').split('').filter(Boolean);
+                    if (answerLetters.length > r.unassignedLetterQuestions.length) {
+                        throw new Error(`Round with question "${r.mainQuestion.substring(0, 20)}..." requires at least ${answerLetters.length} letter-reveal questions, but only ${r.unassignedLetterQuestions.length} were provided.`);
                     }
-                     const shuffledQuestions = [...r.unassignedLetterQuestions].sort(() => Math.random() - 0.5);
+                    
+                    const shuffledQuestions = [...r.unassignedLetterQuestions].sort(() => Math.random() - 0.5);
 
                     const letterQuestionsMap: Round['letterQuestions'] = {};
-                    uniqueLetters.forEach((letter, index) => {
-                        letterQuestionsMap[letter.toUpperCase()] = shuffledQuestions[index];
+                    const letterIndices: Record<string, number> = {};
+
+                    answerLetters.forEach((letter, index) => {
+                        const questionData = shuffledQuestions[index];
+                        const upperLetter = letter.toUpperCase();
+                        const count = letterIndices[upperLetter] || 0;
+                        const uniqueKey = `${upperLetter}_${count}`;
+                        letterIndices[upperLetter] = count + 1;
+                        letterQuestionsMap[uniqueKey] = { 
+                            question: questionData.question,
+                            answer: questionData.answer
+                        };
                     });
                     
                     return {
-                        ...gameData.rounds.find(or => or.mainQuestion === r.mainQuestion)!, // Preserve old state if possible
+                        ...gameData.rounds.find(or => or.mainQuestion === r.mainQuestion)!,
                         mainQuestion: r.mainQuestion,
                         mainAnswer: r.mainAnswer,
                         letterQuestions: letterQuestionsMap,
-                        // Reset properties that should not be carried over from old state on edit
+                        unassignedLetterQuestions: r.unassignedLetterQuestions,
                         status: 'pending',
                         currentPoints: 1000,
                         team1RevealedLetters: [],
@@ -283,7 +303,6 @@ export default function EditGamePage() {
                     };
                 });
                 
-                // If game is active, ensure the current round has the right status
                 if (gameData.status === 'in_progress' || gameData.status === 'lobby') {
                     if (newRounds[gameData.currentRoundIndex]) {
                        newRounds[gameData.currentRoundIndex].status = 'in_progress';
