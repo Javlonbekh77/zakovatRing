@@ -155,6 +155,7 @@ export default function EditGamePage() {
     const { user, isUserLoading } = useUser();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+    // IMPORTANT: Memoize the document reference
     const gameDocRef = useMemoFirebase(() => firestore && gameId ? doc(firestore, 'games', gameId) : null, [firestore, gameId]);
     const { data: game, isLoading: isGameLoading, error: gameError } = useDoc<Game>(gameDocRef);
 

@@ -347,23 +347,19 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
+  // IMPORTANT: Memoize the document reference to prevent re-creating it on every render.
+  // This is crucial for preventing `useDoc` from re-subscribing unnecessarily.
   const gameDocRef = useMemoFirebase(
-    () => (firestore ? doc(firestore, 'games', gameId) : null),
+    () => (firestore && gameId ? doc(firestore, 'games', gameId) : null),
     [firestore, gameId]
   );
+  
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   
   // This state is ONLY for the countdown timer display. It does not affect the final score calculation.
   const [localCurrentPoints, setLocalCurrentPoints] = useState(1000); 
-
-  const currentRound = useMemo(() => {
-    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
-      return null;
-    }
-    return game.rounds[game.currentRoundIndex];
-  }, [game]);
 
   const winner = useMemo(() => {
     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
@@ -373,6 +369,13 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     if (game.team1.score > game.team2.score) return game.team1;
     if (game.team2.score > game.team1.score) return game.team2;
     return null; // Draw
+  }, [game]);
+
+  const currentRound = useMemo(() => {
+    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
+      return null;
+    }
+    return game.rounds[game.currentRoundIndex];
   }, [game]);
   
   // Effect to determine player's team and handle spectator mode
@@ -581,7 +584,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
   };
 
-
+  // Centralized Loading/Error/Not Found States
   if (isLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">

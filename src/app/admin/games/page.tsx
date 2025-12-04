@@ -1,6 +1,6 @@
 'use client';
 
-import { useCollection, useFirestore } from '@/firebase';
+import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { Game } from '@/lib/types';
 import { collection, query, orderBy, deleteDoc, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import {
@@ -32,8 +32,15 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function GamesListPage() {
   const firestore = useFirestore();
-  const gamesCollectionRef = collection(firestore, 'games');
-  const gamesQuery = query(gamesCollectionRef, orderBy('lastActivityAt', 'desc'));
+
+  // IMPORTANT: Memoize the query to prevent re-creating it on every render.
+  const gamesQuery = useMemoFirebase(() => 
+    firestore 
+      ? query(collection(firestore, 'games'), orderBy('lastActivityAt', 'desc'))
+      : null, 
+    [firestore]
+  );
+  
   const { data: games, isLoading, error } = useCollection<Game>(gamesQuery);
   const { toast } = useToast();
 
