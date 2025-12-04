@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import type { Game, Team, Round } from '@/lib/types';
+import type { Game, Team, Round, GameStatus } from '@/lib/types';
 import {
   Card,
   CardContent,
@@ -354,7 +354,16 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
-  const [localCurrentPoints, setLocalCurrentPoints] = useState(0);
+  
+  // This state is ONLY for the countdown timer display. It does not affect the final score calculation.
+  const [localCurrentPoints, setLocalCurrentPoints] = useState(1000); 
+
+  const currentRound = useMemo(() => {
+    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
+      return null;
+    }
+    return game.rounds[game.currentRoundIndex];
+  }, [game]);
 
   const winner = useMemo(() => {
     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
@@ -366,13 +375,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     return null; // Draw
   }, [game]);
   
-  const currentRound = useMemo(() => {
-    if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
-      return null;
-    }
-    return game.rounds[game.currentRoundIndex];
-  }, [game]);
-
+  // Effect to determine player's team and handle spectator mode
   useEffect(() => {
     const isSpectator = window.location.pathname.includes('/spectate');
     if (isSpectator) {
@@ -405,23 +408,26 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
   }, [gameId, searchParams, assignedTeam]);
 
-  // Effect to manage local points countdown
+  // Effect to manage the LOCAL countdown timer display
   useEffect(() => {
     if (currentRound) {
-        // Initialize or reset local points when round changes
+        // When a new round starts, reset the local timer to the round's starting points.
         setLocalCurrentPoints(currentRound.currentPoints);
     }
 
+    // The timer only runs if the game and the current round are in progress.
     if (game?.status !== 'in_progress' || !currentRound || currentRound.status !== 'in_progress') {
-        return; // Stop timer if game is not in progress
+        return; 
     }
     
     const timer = setInterval(() => {
+        // Decrease the local points state. This does NOT write to the database.
         setLocalCurrentPoints(prevPoints => Math.max(0, prevPoints - POINTS_DECREMENT_AMOUNT));
     }, POINTS_DECREMENT_INTERVAL);
 
+    // Cleanup the timer when the component unmounts or dependencies change.
     return () => clearInterval(timer);
-  }, [currentRound, game?.status]); // Rerun when the round or game status changes
+  }, [currentRound, game?.status]); 
 
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
@@ -487,49 +493,49 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         await runTransaction(firestore, async (transaction) => {
           const gameSnap = await transaction.get(gameDocRef);
           if (!gameSnap.exists()) throw new Error('Game data not found.');
+          
           const serverGame = gameSnap.data() as Game;
-          const serverRound = serverGame.rounds[serverGame.currentRoundIndex];
+          const serverRoundIndex = serverGame.currentRoundIndex;
+          const serverRound = serverGame.rounds[serverRoundIndex];
 
           if (serverRound.status !== 'in_progress') {
-            toast({
-              title: 'Round Over',
-              description: 'This round has already finished.',
-            });
+            toast({ title: 'Round Over', description: 'This round has already finished.' });
             return;
           }
           
           const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
           if (isCorrect) {
-            // Use localCurrentPoints for final score calculation
-            const finalTeamScore = (serverGame[playerTeam]?.score || 0) + localCurrentPoints;
+            // The final score for the round is based on the local timer!
+            const pointsFromRound = localCurrentPoints;
+            const finalTeamScore = (serverGame[playerTeam]?.score || 0) + pointsFromRound;
 
             const updateData: any = {
-              lastActivityAt: serverTimestamp(),
-              [`rounds.${serverGame.currentRoundIndex}.status`]: 'finished',
-              [`rounds.${serverGame.currentRoundIndex}.winner`]: playerTeam,
-              [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: localCurrentPoints, // Save the final points
+              [`rounds.${serverRoundIndex}.status`]: 'finished',
+              [`rounds.${serverRoundIndex}.winner`]: playerTeam,
+              [`rounds.${serverRoundIndex}.currentPoints`]: pointsFromRound, // Save the final points
               [`${playerTeam}.score`]: finalTeamScore,
+              lastActivityAt: serverTimestamp(),
             };
 
-            if (serverGame.currentRoundIndex < serverGame.rounds.length - 1) {
-              updateData.currentRoundIndex = serverGame.currentRoundIndex + 1;
-              const nextRoundIndex = serverGame.currentRoundIndex + 1;
+            // Check if there is a next round
+            if (serverRoundIndex < serverGame.rounds.length - 1) {
+              const nextRoundIndex = serverRoundIndex + 1;
+              updateData.currentRoundIndex = nextRoundIndex;
               updateData[`rounds.${nextRoundIndex}.status`] = 'in_progress';
-              // No need to set local points here, the useEffect will handle it
             } else {
-              updateData.status = 'finished';
+              // This was the last round, finish the game
+              updateData.status = 'finished' as GameStatus;
             }
 
             transaction.update(gameDocRef, updateData);
 
             toast({
-              title: `Correct! Round ${
-                serverGame.currentRoundIndex + 1
-              } finished.`,
-              description: `Your team gets ${localCurrentPoints} points.`,
+              title: `Correct! Round ${serverRoundIndex + 1} finished.`,
+              description: `Your team gets ${pointsFromRound} points.`,
             });
           } else {
+            // Incorrect answer, apply penalty
             const newScore =
               (serverGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
             transaction.update(gameDocRef, {
@@ -545,11 +551,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         });
       } catch (e) {
         if (e instanceof Error) {
-          toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: e.message,
-          });
+          toast({ variant: 'destructive', title: 'Error', description: e.message });
         }
       }
     },
