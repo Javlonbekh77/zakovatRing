@@ -354,6 +354,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
+  const [localCurrentPoints, setLocalCurrentPoints] = useState(0);
 
   const winner = useMemo(() => {
     if (!game || game.status !== 'finished' || !game.team1 || !game.team2) return null;
@@ -404,44 +405,23 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
   }, [gameId, searchParams, assignedTeam]);
 
+  // Effect to manage local points countdown
   useEffect(() => {
-    if (game?.status !== 'in_progress' || !currentRound || user?.uid !== game.creatorId) {
-      return;
+    if (currentRound) {
+        // Initialize or reset local points when round changes
+        setLocalCurrentPoints(currentRound.currentPoints);
     }
 
+    if (game?.status !== 'in_progress' || !currentRound || currentRound.status !== 'in_progress') {
+        return; // Stop timer if game is not in progress
+    }
+    
     const timer = setInterval(() => {
-      if (gameDocRef && firestore) {
-        runTransaction(firestore, async (transaction) => {
-          const gameSnap = await transaction.get(gameDocRef);
-          if (!gameSnap.exists()) return;
-          const currentGame = gameSnap.data() as Game;
-          const round = currentGame.rounds[currentGame.currentRoundIndex];
-          
-          if(round.status !== 'in_progress') return;
-
-          const newPoints = Math.max(0, round.currentPoints - POINTS_DECREMENT_AMOUNT);
-          
-          const updates: any = {
-            [`rounds.${currentGame.currentRoundIndex}.currentPoints`]: newPoints,
-            lastActivityAt: serverTimestamp()
-          };
-
-          if (newPoints <= 0) {
-              updates[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
-              if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
-                  updates.currentRoundIndex = currentGame.currentRoundIndex + 1;
-                  updates[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
-              } else {
-                  updates.status = 'finished';
-              }
-          }
-          transaction.update(gameDocRef, updates);
-        });
-      }
+        setLocalCurrentPoints(prevPoints => Math.max(0, prevPoints - POINTS_DECREMENT_AMOUNT));
     }, POINTS_DECREMENT_INTERVAL);
 
     return () => clearInterval(timer);
-  }, [game, currentRound, user, firestore, gameDocRef]);
+  }, [currentRound, game?.status]); // Rerun when the round or game status changes
 
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
@@ -521,21 +501,22 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
           if (isCorrect) {
-            const finalPoints = serverRound.currentPoints;
-            const finalTeamScore = (serverGame[playerTeam]?.score || 0) + finalPoints;
+            // Use localCurrentPoints for final score calculation
+            const finalTeamScore = (serverGame[playerTeam]?.score || 0) + localCurrentPoints;
 
             const updateData: any = {
               lastActivityAt: serverTimestamp(),
               [`rounds.${serverGame.currentRoundIndex}.status`]: 'finished',
               [`rounds.${serverGame.currentRoundIndex}.winner`]: playerTeam,
-              [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: finalPoints,
+              [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: localCurrentPoints, // Save the final points
               [`${playerTeam}.score`]: finalTeamScore,
             };
 
             if (serverGame.currentRoundIndex < serverGame.rounds.length - 1) {
               updateData.currentRoundIndex = serverGame.currentRoundIndex + 1;
-              updateData[`rounds.${serverGame.currentRoundIndex + 1}.status`] =
-                'in_progress';
+              const nextRoundIndex = serverGame.currentRoundIndex + 1;
+              updateData[`rounds.${nextRoundIndex}.status`] = 'in_progress';
+              // No need to set local points here, the useEffect will handle it
             } else {
               updateData.status = 'finished';
             }
@@ -546,7 +527,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
               title: `Correct! Round ${
                 serverGame.currentRoundIndex + 1
               } finished.`,
-              description: `Your team gets ${finalPoints} points.`,
+              description: `Your team gets ${localCurrentPoints} points.`,
             });
           } else {
             const newScore =
@@ -572,7 +553,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         }
       }
     },
-    [playerTeam, firestore, gameDocRef, game, toast, currentRound]
+    [playerTeam, firestore, gameDocRef, game, toast, currentRound, localCurrentPoints]
   );
   
   const handleForfeit = async () => {
@@ -738,12 +719,15 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }
 
   // This is the main "in_progress" render block.
-  if (!currentRound) {
+  // If the game is loaded but the current round is somehow not (e.g. during a fast transition),
+  // show a loader instead of crashing.
+  if (game && !currentRound) {
      return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
           Loading round...
+           <p className='text-sm text-muted-foreground'>Could not determine the current round. The game data might be inconsistent.</p>
         </div>
       </div>
     );
@@ -769,7 +753,8 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         />
         <GameArea
           game={game}
-          currentRound={currentRound}
+          currentRound={currentRound!} // We've already checked for nullability
+          localCurrentPoints={localCurrentPoints}
           playerTeam={playerTeam}
           onLetterReveal={handleLetterReveal}
           onMainAnswerSubmit={handleMainAnswerSubmit}

@@ -17,6 +17,7 @@ import { Badge } from './ui/badge';
 interface GameAreaProps {
   game: Game;
   currentRound: Round;
+  localCurrentPoints: number; // Use local points passed from parent
   playerTeam: 'team1' | 'team2' | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
   onMainAnswerSubmit: (answer: string) => Promise<void>;
@@ -26,7 +27,7 @@ const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-export default function GameArea({ game, currentRound, playerTeam, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
+export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -70,7 +71,7 @@ export default function GameArea({ game, currentRound, playerTeam, onLetterRevea
                         </div>
                         <div className='text-right flex-shrink-0'>
                             <Badge variant="default" className="text-lg font-mono font-bold shadow-md">
-                            {currentRound.currentPoints} Points
+                            {localCurrentPoints} Points
                             </Badge>
                              <p className='text-xs text-muted-foreground mt-1'>Available</p>
                         </div>
