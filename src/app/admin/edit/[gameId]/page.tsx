@@ -167,47 +167,33 @@ export default function EditGamePage() {
     });
 
     React.useEffect(() => {
-        if (game) {
-            if (Array.isArray(game.rounds)) {
-                const formRounds = game.rounds.map(r => {
-                    const answerLetters = r.mainAnswer.replace(/\s/g, '').split('');
-                    const letterQuestions: FormLetterQuestion[] = [];
-                    const usedKeys: Record<string, number> = {};
+        if (game && Array.isArray(game.rounds)) {
+            const formRounds = game.rounds.map(r => {
+                const answerLetters = r.mainAnswer.replace(/\s/g, '').split('');
+                const letterIndices: Record<string, number> = {};
+                
+                const letterQuestions: FormLetterQuestion[] = answerLetters.map(letter => {
+                    const upperLetter = letter.toUpperCase();
+                    const count = letterIndices[upperLetter] || 0;
+                    const key = `${upperLetter}_${count}`;
+                    letterIndices[upperLetter] = count + 1;
                     
-                    answerLetters.forEach(letter => {
-                       const upperLetter = letter.toUpperCase();
-                       const count = usedKeys[upperLetter] || 0;
-                       const key = `${upperLetter}_${count}`;
-                       usedKeys[upperLetter] = count + 1;
-                       
-                       const questionData = r.letterQuestions[key];
-                       if (questionData) {
-                         letterQuestions.push({
-                            letter: letter,
-                            question: questionData.question,
-                            answer: questionData.answer
-                         });
-                       } else {
-                         // This case can happen if the mainAnswer was changed
-                         // but we still want to generate a field for it
-                         letterQuestions.push({
-                            letter: letter,
-                            question: '',
-                            answer: ''
-                         });
-                       }
-                    });
+                    const questionData = r.letterQuestions[key];
 
                     return {
-                        mainQuestion: r.mainQuestion,
-                        mainAnswer: r.mainAnswer,
-                        letterQuestions: letterQuestions,
+                        letter: letter,
+                        question: questionData?.question || '',
+                        answer: questionData?.answer || ''
                     };
                 });
-                form.reset({ rounds: formRounds });
-            } else {
-                form.reset({ rounds: [{ mainQuestion: '', mainAnswer: '', letterQuestions: [] }] });
-            }
+
+                return {
+                    mainQuestion: r.mainQuestion,
+                    mainAnswer: r.mainAnswer,
+                    letterQuestions: letterQuestions,
+                };
+            });
+            form.reset({ rounds: formRounds });
         }
     }, [game, form]);
 

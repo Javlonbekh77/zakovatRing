@@ -73,13 +73,24 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
 
     useEffect(() => {
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
+        
+        const existingFields = form.getValues(`rounds.${roundIndex}.letterQuestions`);
+        const existingData: { [key: string]: { question: string, answer: string } } = {};
+        if (Array.isArray(existingFields)) {
+            existingFields.forEach((field: FormLetterQuestion) => {
+                if (field.letter) {
+                    existingData[field.letter] = { question: field.question, answer: field.answer };
+                }
+            });
+        }
+        
         const newFields: FormLetterQuestion[] = answerLetters.map(letter => ({
             letter: letter,
-            question: '',
-            answer: ''
+            question: existingData[letter]?.question || '',
+            answer: existingData[letter]?.answer || ''
         }));
         replace(newFields);
-    }, [mainAnswer, replace]);
+    }, [mainAnswer, replace, form, roundIndex]);
 
     if (!mainAnswer) {
         return (

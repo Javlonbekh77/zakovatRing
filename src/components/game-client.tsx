@@ -461,20 +461,23 @@ export default function GameClient({ gameId }: GameClientProps) {
     }
   }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam]);
 
-  // Effect for the points countdown timer, running entirely on local state.
+  // Effect for the points countdown timer.
   useEffect(() => {
     if (!localGame || !playerTeam || localGame.status !== 'in_progress') return;
+    
+    const teamData = localGame[playerTeam];
+    if (!teamData || teamData.currentRoundIndex >= localGame.rounds.length) return;
 
     const timer = setInterval(() => {
       setLocalGame(prevGame => {
-        if (!prevGame || !Array.isArray(prevGame.rounds) || prevGame.status !== 'in_progress' || !prevGame[playerTeam]) return prevGame;
+        if (!prevGame || !prevGame[playerTeam] || prevGame.status !== 'in_progress') return prevGame;
         
         const playerTeamData = prevGame[playerTeam]!;
         const currentRoundIndex = playerTeamData.currentRoundIndex;
         if(currentRoundIndex >= prevGame.rounds.length) return prevGame;
 
         const updatedRounds = [...prevGame.rounds];
-        const currentRound = updatedRounds[currentRoundIndex];
+        const currentRound = { ...updatedRounds[currentRoundIndex] };
         
         if (currentRound) {
             currentRound.currentPoints = Math.max(0, currentRound.currentPoints - POINTS_DECREMENT_AMOUNT);
@@ -530,12 +533,13 @@ export default function GameClient({ gameId }: GameClientProps) {
       const teamData = localGame[playerTeam];
       if (!teamData) return;
 
-      const currentRound = localGame.rounds[teamData.currentRoundIndex];
+      const currentRoundIndex = teamData.currentRoundIndex;
+      const currentRound = localGame.rounds[currentRoundIndex];
       const isCorrect = currentRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
-
+      
       if (isCorrect) {
           const pointsFromRound = currentRound.currentPoints;
-          const nextRoundIndex = teamData.currentRoundIndex + 1;
+          const nextRoundIndex = currentRoundIndex + 1;
           const isLastRoundForPlayer = nextRoundIndex === localGame.rounds.length;
 
           setLocalGame(prevGame => {
@@ -552,7 +556,7 @@ export default function GameClient({ gameId }: GameClientProps) {
           });
           
           toast({
-            title: `Correct! Round ${teamData.currentRoundIndex + 1} finished.`,
+            title: `Correct! Round ${currentRoundIndex + 1} finished.`,
             description: `Your team gets ${currentRound.currentPoints} points.`,
           });
 
@@ -563,7 +567,7 @@ export default function GameClient({ gameId }: GameClientProps) {
                   if (!gameSnap.exists()) throw new Error("Game not found during final sync");
                   const serverGame = gameSnap.data() as Game;
 
-                  const finalScore = teamData.score + pointsFromRound;
+                  const finalScore = (localGame[playerTeam]?.score || 0) + pointsFromRound;
 
                   const finalUpdate: any = {
                       [`${playerTeam}.score`]: finalScore,
@@ -634,12 +638,22 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   const winner = useMemo(() => {
     if (!activeGame || activeGame.status !== 'finished') return null;
+
     if (activeGame.forfeitedBy) {
         return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
     }
-    if (activeGame.team1 && activeGame.team2 && activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
-    if (activeGame.team1 && activeGame.team2 && activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
-    return null; // Draw
+    
+    // Check if both teams have finished
+    const team1Finished = activeGame.team1 && activeGame.team1.currentRoundIndex >= activeGame.rounds.length;
+    const team2Finished = activeGame.team2 && activeGame.team2.currentRoundIndex >= activeGame.rounds.length;
+
+    if (team1Finished && team2Finished) {
+        if (activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
+        if (activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
+        return null; // Draw
+    }
+    
+    return null; // Game finished but not all conditions for a winner are met yet
   }, [activeGame]);
   
   const playerTeamData = useMemo(() => {
@@ -819,14 +833,24 @@ export default function GameClient({ gameId }: GameClientProps) {
   }
 
   if (!currentRound) {
-    return (
-        <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-            <div className="flex flex-col items-center gap-4 text-lg">
-                <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                Loading round...
+    if (isLoading || isSyncing) {
+        return (
+            <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+                <div className="flex flex-col items-center gap-4 text-lg">
+                    <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                    Loading...
+                </div>
             </div>
-        </div>
-    );
+        );
+    }
+     return (
+        <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
+            <CardHeader>
+                <CardTitle>Error</CardTitle>
+                <CardDescription>Could not load the current round. Please refresh the page.</CardDescription>
+            </CardHeader>
+        </Card>
+      );
   }
 
 
