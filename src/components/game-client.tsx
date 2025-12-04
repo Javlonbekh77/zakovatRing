@@ -290,10 +290,8 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   }, [firestore, gameId]);
 
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
-
-   // CRITICAL: All hooks must be called at the top level of the component.
-   // Do not call hooks inside early returns.
-   const currentRound = useMemo(() => {
+  
+  const currentRound = useMemo(() => {
     if (!game || !Array.isArray(game.rounds) || game.currentRoundIndex >= game.rounds.length) {
       return null;
     }
@@ -310,59 +308,60 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     return null; // Draw
   }, [game]);
 
-  const isSpectator = !playerTeam && typeof window !== 'undefined' && window.location.pathname.includes('/spectate');
+  const isSpectator = useMemo(() => !playerTeam && typeof window !== 'undefined' && window.location.pathname.includes('/spectate'), [playerTeam]);
   
-  // This effect manages the points countdown timer.
-  // It only runs for the game creator to prevent multiple timers.
+  const [localPoints, setLocalPoints] = useState<number | null>(null);
+  
+  // Effect 1: Initialize and update local points when the official round changes
   useEffect(() => {
-    if (!game || !user || user.uid !== game.creatorId || game.status !== 'in_progress') {
+    if (currentRound) {
+        setLocalPoints(currentRound.currentPoints);
+    }
+  }, [currentRound]);
+
+
+  // Effect 2: The timer logic, runs only for the creator
+  useEffect(() => {
+    if (!game || !user || user.uid !== game.creatorId || game.status !== 'in_progress' || localPoints === null || localPoints <= 0) {
       return;
     }
   
     const timer = setInterval(async () => {
-      if (!firestore) return;
-      const gameDocRef = doc(firestore, "games", game.id);
-  
-      try {
-        await runTransaction(firestore, async (transaction) => {
-          const gameSnap = await transaction.get(gameDocRef);
-          if (!gameSnap.exists()) {
-            throw new Error("Game not found during transaction.");
-          }
-          const currentGame = gameSnap.data() as Game;
-          const currentRound = currentGame.rounds[currentGame.currentRoundIndex];
-          
-          if (currentGame.status !== 'in_progress' || currentRound.status !== 'in_progress') {
-            return;
-          }
-  
-          let newPoints = currentRound.currentPoints - POINTS_DECREMENT_AMOUNT;
-          if (newPoints < 0) newPoints = 0;
-  
-          const updates: any = {
-            [`rounds.${currentGame.currentRoundIndex}.currentPoints`]: newPoints,
-            lastActivityAt: serverTimestamp(),
-          };
-          
-          if (newPoints <= 0) {
-              updates[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished'; // Mark as finished
-              if (currentGame.currentRoundIndex < currentGame.rounds.length - 1) {
-                  updates.currentRoundIndex = currentGame.currentRoundIndex + 1;
-                  updates[`rounds.${currentGame.currentRoundIndex + 1}.status`] = 'in_progress';
-              } else {
-                  updates.status = 'finished'; // End of game
-              }
-          }
-  
-          transaction.update(gameDocRef, updates);
-        });
-      } catch (e) {
-        console.error("Error in points countdown transaction:", e);
-      }
+       setLocalPoints(prevPoints => {
+           const newPoints = (prevPoints || 0) - POINTS_DECREMENT_AMOUNT;
+           if (newPoints <= 0) {
+               // Time is up for this round. Update Firestore.
+               if (firestore && gameDocRef) {
+                   runTransaction(firestore, async (transaction) => {
+                       const gameSnap = await transaction.get(gameDocRef);
+                       if (!gameSnap.exists()) throw new Error("Game not found.");
+                       
+                       const currentGame = gameSnap.data() as Game;
+                       // Only proceed if this is still the current round
+                       if(currentGame.status === 'in_progress' && currentGame.currentRoundIndex === game.currentRoundIndex) {
+                           const updates: any = {
+                               [`rounds.${game.currentRoundIndex}.currentPoints`]: 0,
+                               [`rounds.${game.currentRoundIndex}.status`]: 'finished',
+                               lastActivityAt: serverTimestamp(),
+                           };
+                           if (game.currentRoundIndex < game.rounds.length - 1) {
+                               updates.currentRoundIndex = game.currentRoundIndex + 1;
+                               updates[`rounds.${game.currentRoundIndex + 1}.status`] = 'in_progress';
+                           } else {
+                               updates.status = 'finished'; // End of game
+                           }
+                           transaction.update(gameDocRef, updates);
+                       }
+                   });
+               }
+               return 0;
+           }
+           return newPoints;
+       });
     }, POINTS_DECREMENT_INTERVAL);
   
     return () => clearInterval(timer);
-  }, [game?.status, game?.id, game?.creatorId, user, firestore, game?.currentRoundIndex, game?.rounds.length]);
+  }, [game, user, firestore, gameDocRef, localPoints]);
 
 
   useEffect(() => {
@@ -416,7 +415,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
   
-  // Render spectator-specific dashboard
   if (isSpectator) {
     return <SpectatorView game={game} user={user} />
   }
@@ -485,11 +483,13 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
-  if (game.status !== 'in_progress' || !currentRound) {
+  if (game.status !== 'in_progress' || !currentRound || localPoints === null) {
      return (
-        <div className="flex flex-col items-center gap-4 text-lg">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          {game.status === 'paused' ? 'Game is paused by the admin...' : 'Loading game state...'}
+        <div className="flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+          <div className="flex flex-col items-center gap-4 text-lg">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            {game.status === 'paused' ? 'Game is paused by the admin...' : 'Loading game state...'}
+        </div>
       </div>
      )
   }
@@ -510,6 +510,12 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           if (e instanceof Error) toast({ variant: 'destructive', title: 'Error', description: e.message });
       }
   }
+  
+  const roundWithLocalPoints: Round = {
+      ...currentRound,
+      currentPoints: localPoints,
+  };
+
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-4">
@@ -518,7 +524,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         <span>Round: <strong className="font-mono">{game.currentRoundIndex + 1} / {game.rounds.length}</strong></span>
       </div>
       <Scoreboard team1={game.team1} team2={game.team2} playerTeam={playerTeam} />
-      <GameArea game={game} currentRound={currentRound} playerTeam={playerTeam} />
+      <GameArea game={game} currentRound={roundWithLocalPoints} playerTeam={playerTeam} />
         <AlertDialog>
             <AlertDialogTrigger asChild>
                 <Button variant="destructive" className="w-full">

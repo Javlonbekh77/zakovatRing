@@ -61,8 +61,9 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
           if (!team) throw new Error("Team data is missing");
       
           if (round.status !== 'in_progress') {
+            // This toast is now outside the transaction
             toastMessage = { title: "Round Over", description: "This round has already finished." };
-            return;
+            return; // Exit transaction
           }
 
           const isCorrect = round.mainAnswer.toLowerCase().trim() === values.answer.toLowerCase().trim();
@@ -70,7 +71,8 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
           let updateData: any = { lastActivityAt: serverTimestamp() };
 
           if (isCorrect) {
-              const pointsWon = round.currentPoints;
+              // Use the points from the client-side state passed in via props
+              const pointsWon = currentRound.currentPoints; 
               updateData[teamScorePath] = team.score + pointsWon;
               updateData[`rounds.${currentGame.currentRoundIndex}.status`] = 'finished';
               updateData[`rounds.${currentGame.currentRoundIndex}.winner`] = playerTeam;
@@ -97,7 +99,8 @@ export default function GameArea({ game, currentRound, playerTeam }: GameAreaPro
           
           transaction.update(gameDocRef, updateData);
       });
-
+      
+      // Show toast after the transaction is complete
       if (toastMessage) {
         toast(toastMessage);
       }
