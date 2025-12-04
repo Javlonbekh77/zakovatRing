@@ -347,8 +347,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
-  // IMPORTANT: Memoize the document reference to prevent re-creating it on every render.
-  // This is crucial for preventing `useDoc` from re-subscribing unnecessarily.
   const gameDocRef = useMemoFirebase(
     () => (firestore && gameId ? doc(firestore, 'games', gameId) : null),
     [firestore, gameId]
@@ -357,8 +355,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
-  
-  // This state is ONLY for the countdown timer display. It does not affect the final score calculation.
   const [localCurrentPoints, setLocalCurrentPoints] = useState(1000); 
 
   const winner = useMemo(() => {
@@ -378,7 +374,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     return game.rounds[game.currentRoundIndex];
   }, [game]);
   
-  // Effect to determine player's team and handle spectator mode
   useEffect(() => {
     const isSpectator = window.location.pathname.includes('/spectate');
     if (isSpectator) {
@@ -411,24 +406,19 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
   }, [gameId, searchParams, assignedTeam]);
 
-  // Effect to manage the LOCAL countdown timer display
   useEffect(() => {
     if (currentRound) {
-        // When a new round starts, reset the local timer to the round's starting points.
         setLocalCurrentPoints(currentRound.currentPoints);
     }
 
-    // The timer only runs if the game and the current round are in progress.
     if (game?.status !== 'in_progress' || !currentRound || currentRound.status !== 'in_progress') {
         return; 
     }
     
     const timer = setInterval(() => {
-        // Decrease the local points state. This does NOT write to the database.
         setLocalCurrentPoints(prevPoints => Math.max(0, prevPoints - POINTS_DECREMENT_AMOUNT));
     }, POINTS_DECREMENT_INTERVAL);
 
-    // Cleanup the timer when the component unmounts or dependencies change.
     return () => clearInterval(timer);
   }, [currentRound, game?.status]); 
 
@@ -509,25 +499,22 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
           const isCorrect = serverRound.mainAnswer.toLowerCase().trim() === answer.toLowerCase().trim();
 
           if (isCorrect) {
-            // The final score for the round is based on the local timer!
             const pointsFromRound = localCurrentPoints;
             const finalTeamScore = (serverGame[playerTeam]?.score || 0) + pointsFromRound;
 
             const updateData: any = {
               [`rounds.${serverRoundIndex}.status`]: 'finished',
               [`rounds.${serverRoundIndex}.winner`]: playerTeam,
-              [`rounds.${serverRoundIndex}.currentPoints`]: pointsFromRound, // Save the final points
+              [`rounds.${serverRoundIndex}.currentPoints`]: pointsFromRound,
               [`${playerTeam}.score`]: finalTeamScore,
               lastActivityAt: serverTimestamp(),
             };
 
-            // Check if there is a next round
             if (serverRoundIndex < serverGame.rounds.length - 1) {
               const nextRoundIndex = serverRoundIndex + 1;
               updateData.currentRoundIndex = nextRoundIndex;
               updateData[`rounds.${nextRoundIndex}.status`] = 'in_progress';
             } else {
-              // This was the last round, finish the game
               updateData.status = 'finished' as GameStatus;
             }
 
@@ -538,7 +525,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
               description: `Your team gets ${pointsFromRound} points.`,
             });
           } else {
-            // Incorrect answer, apply penalty
             const newScore =
               (serverGame[playerTeam]?.score || 0) - INCORRECT_ANSWER_PENALTY;
             transaction.update(gameDocRef, {
@@ -584,7 +570,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     }
   };
 
-  // Centralized Loading/Error/Not Found States
   if (isLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
@@ -723,11 +708,8 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     );
   }
 
-  // This is the main "in_progress" render block.
-  // If the game is loaded but the current round is somehow not (e.g. during a fast transition),
-  // show a loader instead of crashing.
   if (game.status === 'in_progress' && !currentRound) {
-     return (
+    return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -757,7 +739,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
         />
         <GameArea
           game={game}
-          currentRound={currentRound!} // We've already checked for nullability
+          currentRound={currentRound!}
           localCurrentPoints={localCurrentPoints}
           playerTeam={playerTeam}
           onLetterReveal={handleLetterReveal}
