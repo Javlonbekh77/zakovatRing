@@ -50,10 +50,6 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
 
         if (isCorrect) {
             await onLetterReveal(letterKey);
-            toast({
-                title: 'Correct!',
-                description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
-            });
             setOpen(false);
         } else {
             toast({ variant: "destructive", title: "Incorrect", description: "That's not the right answer. Try again." });
@@ -98,7 +94,7 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
               )}
             />
             <Button type="submit" disabled={isSubmitting || !playerTeam} className="w-full">
-              {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send />}
               Submit
             </Button>
           </form>
@@ -152,3 +148,5 @@ export default function AnswerGrid({ game, currentRound, playerTeam, onLetterRev
     </div>
   );
 }
+
+    

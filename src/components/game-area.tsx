@@ -101,7 +101,7 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                         )}
                         />
                         <Button type="submit" disabled={isSubmitting || currentRound.status !== 'in_progress'} className='w-full'>
-                            {isSubmitting ? <Loader2 className="animate-spin" /> : <Send />}
+                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send />}
                             Submit Final Answer
                         </Button>
                     </form>
@@ -115,3 +115,5 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
     </div>
   );
 }
+
+    
