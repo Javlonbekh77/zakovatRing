@@ -358,7 +358,7 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   useEffect(() => {
     const assignTeam = async () => {
-        if (!teamNameFromUrl || !firestore || !gameId) return;
+        if (!teamNameFromUrl || !firestore || !gameId || !user) return;
 
         const docRef = doc(firestore, 'games', gameId);
         try {
@@ -369,23 +369,22 @@ export default function GameClient({ gameId }: GameClientProps) {
                 }
                 const gameData = gameSnap.data() as Game;
 
-                if (gameData.status !== 'lobby') {
-                    // Game is not joinable, check if we are already in
-                    if (gameData.team1?.name === teamNameFromUrl) {
-                        setPlayerTeam('team1');
-                    } else if (gameData.team2?.name === teamNameFromUrl) {
-                        setPlayerTeam('team2');
-                    } else {
-                         toast({ variant: 'destructive', title: 'Game already started' });
-                    }
+                // Check if user is already part of a team
+                if (gameData.team1?.name === teamNameFromUrl) {
+                    setPlayerTeam('team1');
+                    return;
+                }
+                 if (gameData.team2?.name === teamNameFromUrl) {
+                    setPlayerTeam('team2');
                     return;
                 }
 
-                // Check if team name is already taken
-                if (gameData.team1?.name === teamNameFromUrl || gameData.team2?.name === teamNameFromUrl) {
-                    toast({ variant: 'destructive', title: 'Team name taken' });
-                    return; // Or redirect
+                // If game is not in lobby, joining is not allowed unless you are already in
+                if (gameData.status !== 'lobby') {
+                    toast({ variant: 'destructive', title: 'Game has already started or is full.' });
+                    return;
                 }
+
 
                 let newTeamSlot: 'team1' | 'team2' | null = null;
                 if (!gameData.team1) {
@@ -399,11 +398,12 @@ export default function GameClient({ gameId }: GameClientProps) {
                         [`${newTeamSlot}`]: { name: teamNameFromUrl, score: 0 },
                         lastActivityAt: serverTimestamp(),
                     };
+                    // If the second team is joining, start the game
                     if (newTeamSlot === 'team2') {
                         updateData.status = 'in_progress';
                     }
                     transaction.update(docRef, updateData);
-                    setPlayerTeam(newTeamSlot);
+                    setPlayerTeam(newTeamSlot); // Set player team locally for instant UI update
                 } else {
                      toast({ variant: 'destructive', title: 'Game is full' });
                 }
@@ -414,8 +414,10 @@ export default function GameClient({ gameId }: GameClientProps) {
             }
         }
     };
-    assignTeam();
-  }, [teamNameFromUrl, firestore, gameId, toast]);
+    if (game && !playerTeam) {
+        assignTeam();
+    }
+  }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam]);
 
 
   const winner = useMemo(() => {

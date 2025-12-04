@@ -70,20 +70,6 @@ export default function JoinGameForm() {
         return;
       }
       
-      const game = gameSnap.data();
-
-      // Spectators can always go to the spectate page
-      // But for joining, we do a preliminary check
-      if (game.status !== 'lobby' && (game.team1 && game.team2)) {
-        toast({
-          variant: 'destructive',
-          title: 'Game Full or In Progress',
-          description: 'This game already has two teams or has started. You can spectate instead.',
-        });
-        setIsSubmitting(false);
-        return;
-      }
-      
       // Redirect to the game page with team name as a query parameter.
       // The game page will handle the logic of assigning the team slot.
       router.push(`/game/${gameId.toUpperCase()}?teamName=${encodeURIComponent(values.teamName)}`);
