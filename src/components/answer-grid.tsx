@@ -12,13 +12,11 @@ import { Input } from './ui/input';
 import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-const LETTER_REVEAL_REWARD = 10;
-
 interface AnswerGridProps {
   game: Game;
   currentRound: Round;
   playerTeam: 'team1' | 'team2' | null;
-  onLetterReveal: (letter: string, points: number) => void;
+  onLetterReveal: (letter: string) => void;
 }
 
 const letterAnswerSchema = z.object({
@@ -26,7 +24,7 @@ const letterAnswerSchema = z.object({
 });
 
 
-function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }: { letter: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letter: string, points: number) => void }) {
+function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }: { letter: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letter: string) => void }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -46,18 +44,15 @@ function LetterDialog({ letter, game, currentRound, playerTeam, onLetterReveal }
     }
     
     setIsSubmitting(true);
-    // Simulate a short delay to feel more responsive
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
+    // No DB interaction here, just local logic
     try {
         const isCorrect = letterQuestion.answer.toLowerCase().trim() === values.answer.toLowerCase().trim();
-        
         const teamRevealedLetters = currentRound[playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters'] || [];
 
         if (isCorrect) {
             if (!teamRevealedLetters.includes(letter.toUpperCase())) {
-                onLetterReveal(letter.toUpperCase(), LETTER_REVEAL_REWARD);
-                toast({ title: "Correct!", description: `Letter '${letter.toUpperCase()}' revealed! You earned ${LETTER_REVEAL_REWARD} points.`});
+                onLetterReveal(letter.toUpperCase());
+                // The toast is moved to the parent to reflect the score change
                 setOpen(false);
             } else {
                 toast({ title: "Already Revealed", description: `You have already revealed this letter.`});
