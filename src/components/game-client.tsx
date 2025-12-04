@@ -345,25 +345,13 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
-  // State for optimistic UI updates
-  const [optimisticGame, setOptimisticGame] = useState<Game | null>(null);
-
   const gameDocRef = useMemoFirebase(
     () => (firestore && gameId ? doc(firestore, 'games', gameId) : null),
     [firestore, gameId]
   );
   
-  const { data: remoteGame, isLoading, error } = useDoc<Game>(gameDocRef);
-
-  // The game state used by the UI is either the optimistic state or the remote one
-  const game = useMemo(() => optimisticGame || remoteGame, [optimisticGame, remoteGame]);
-
-  // When remoteGame changes, update the optimistic state to match it.
-  useEffect(() => {
-    setOptimisticGame(remoteGame);
-  }, [remoteGame]);
-
-
+  const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
+  
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const [localCurrentPoints, setLocalCurrentPoints] = useState(1000); 
 
@@ -429,8 +417,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     if (user?.uid !== game.creatorId) return;
 
     const timer = setInterval(() => {
-      // This is a "fire-and-forget" update for the points.
-      // It does not wait for a response, preventing UI blocking.
       if (firestore && gameDocRef) {
           runTransaction(firestore, async transaction => {
               const gameSnap = await transaction.get(gameDocRef);
@@ -445,7 +431,6 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
                   [`rounds.${serverGame.currentRoundIndex}.currentPoints`]: newPoints
               });
           }).catch(err => {
-              // We log the error but don't show a toast to avoid spamming the admin
               console.error("Error decrementing points:", err);
           });
       }
@@ -465,30 +450,10 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
-      if (!playerTeam || !game || !gameDocRef || !currentRound) return;
+      if (!playerTeam || !game || !gameDocRef || !firestore) return;
       
       const revealedLettersKey = playerTeam === 'team1' ? 'team1RevealedLetters' : 'team2RevealedLetters';
       
-      // --- Optimistic UI Update ---
-      setOptimisticGame(prevGame => {
-          if (!prevGame) return null;
-          const newGame = JSON.parse(JSON.stringify(prevGame)) as Game;
-          const optimisticRound = newGame.rounds[newGame.currentRoundIndex];
-          if (!optimisticRound[revealedLettersKey].includes(letterKey)) {
-              optimisticRound[revealedLettersKey].push(letterKey);
-              if (newGame[playerTeam]) {
-                (newGame[playerTeam] as Team).score += LETTER_REVEAL_REWARD;
-              }
-          }
-          return newGame;
-      });
-
-      toast({
-        title: 'Correct!',
-        description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
-      });
-      // --- End Optimistic UI Update ---
-
       try {
         await runTransaction(firestore, async (transaction) => {
           const gameSnap = await transaction.get(gameDocRef);
@@ -498,9 +463,8 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
 		      const round = serverGame.rounds[serverRoundIndex];
 
           if (round.status !== 'in_progress') {
-            // The round ended while the user was answering.
-            // No need to show a toast here, the UI will update to the next round.
-            return;
+             toast({ title: 'Round Over', description: 'This round has already finished.' });
+             return;
           }
 
           const currentRevealed = round[revealedLettersKey] || [];
@@ -515,22 +479,24 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
               [`${playerTeam}.score`]: newScore,
               lastActivityAt: serverTimestamp(),
             });
+             toast({
+                title: 'Correct!',
+                description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
+            });
           }
         });
       } catch (e) {
         if (e instanceof Error) {
           toast({ variant: 'destructive', title: 'Sync Error', description: e.message });
-          // On error, revert the optimistic update by fetching from remote
-          setOptimisticGame(remoteGame);
         }
       }
     },
-    [playerTeam, game, gameDocRef, firestore, toast, currentRound, remoteGame]
+    [playerTeam, game, gameDocRef, firestore, toast]
   );
 
   const handleMainAnswerSubmit = useCallback(
     async (answer: string) => {
-      if (!playerTeam || !game || !currentRound || !gameDocRef) {
+      if (!playerTeam || !game || !currentRound || !gameDocRef || !firestore) {
         throw new Error('Game state is not ready for submission.');
       }
 
@@ -627,7 +593,7 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          Loading game...
+          Loading...
         </div>
       </div>
     );
@@ -666,70 +632,11 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
     )
   }
 
-  // This is the new, simplified loading state.
-  // It shows a loader if the game object is present but the specific round isn't resolved yet.
-  // This avoids getting stuck on "Loading next round..."
-  if (game && !currentRound) {
-     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-        <div className="flex flex-col items-center gap-4 text-lg">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          Loading...
-        </div>
-      </div>
-    );
-  }
-
   const isSpectator = !playerTeam;
   if (isSpectator) {
     return <SpectatorView game={game} user={user} />;
   }
-  
-  // Player is in the game, but game hasn't started
-  if (game.status === 'lobby') {
-    return (
-      <Card className="w-full max-w-lg text-center p-8 shadow-xl m-auto">
-        <CardHeader>
-          <div className="mx-auto w-fit rounded-full bg-primary/10 p-4 mb-4">
-            <Users className="h-12 w-12 text-primary" />
-          </div>
-          <CardTitle className="font-headline text-3xl">Game Lobby</CardTitle>
-          <CardDescription>
-            Waiting for the second player to join...
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="font-mono text-xl p-3 bg-muted rounded-md">
-            Game Code: <span className="font-bold tracking-widest">{game.id}</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
-            <div className="p-4 border rounded-md">
-              <h3 className="font-bold">Team 1</h3>
-              <p>{game.team1?.name || 'Waiting...'}</p>
-            </div>
-            <div className="p-4 border rounded-md">
-              <h3 className="font-bold">Team 2</h3>
-              <p>{game.team2?.name || 'Waiting...'}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
 
-  // Player is in the game, and it is paused
-  if (game.status === 'paused') {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-        <div className="flex flex-col items-center gap-4 text-lg">
-          <Pause className="h-12 w-12 text-primary" />
-          Game is paused by the admin...
-        </div>
-      </div>
-    );
-  }
-  
-  // Game is finished
   if (game.status === 'finished') {
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
@@ -776,16 +683,55 @@ export default function GameClient({ gameId, assignedTeam }: GameClientProps) {
       </Card>
     );
   }
+  
+  if (game.status === 'lobby') {
+    return (
+      <Card className="w-full max-w-lg text-center p-8 shadow-xl m-auto">
+        <CardHeader>
+          <div className="mx-auto w-fit rounded-full bg-primary/10 p-4 mb-4">
+            <Users className="h-12 w-12 text-primary" />
+          </div>
+          <CardTitle className="font-headline text-3xl">Game Lobby</CardTitle>
+          <CardDescription>
+            Waiting for the second player to join...
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="font-mono text-xl p-3 bg-muted rounded-md">
+            Game Code: <span className="font-bold tracking-widest">{game.id}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
+            <div className="p-4 border rounded-md">
+              <h3 className="font-bold">Team 1</h3>
+              <p>{game.team1?.name || 'Waiting...'}</p>
+            </div>
+            <div className="p-4 border rounded-md">
+              <h3 className="font-bold">Team 2</h3>
+              <p>{game.team2?.name || 'Waiting...'}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
-  // In this case, `game` exists and `currentRound` also exists.
+  if (game.status === 'paused') {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+        <div className="flex flex-col items-center gap-4 text-lg">
+          <Pause className="h-12 w-12 text-primary" />
+          Game is paused by the admin...
+        </div>
+      </div>
+    );
+  }
+  
   if (!currentRound) {
-    // This case should ideally not be hit if the above loader works correctly,
-    // but it's a fallback.
     return (
         <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-            <div className="flex flex-col items-center gap-4 text-lg text-destructive">
-                <AlertTriangle className="h-12 w-12" />
-                Could not determine the current round. The game data might be inconsistent.
+            <div className="flex flex-col items-center gap-4 text-lg">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                Loading...
             </div>
         </div>
     );
