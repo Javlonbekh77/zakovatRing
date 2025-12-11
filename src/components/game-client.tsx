@@ -249,7 +249,7 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Scoreboard team1={game.team1} team2={game.team2} playerTeam={null} />
+          <Scoreboard game={game} playerTeam={null} />
         </CardContent>
       </Card>
 
@@ -464,25 +464,29 @@ export default function GameClient({ gameId }: GameClientProps) {
   // Effect for the points countdown timer.
   useEffect(() => {
     if (!localGame || !playerTeam || localGame.status !== 'in_progress') return;
-    
+  
     const teamData = localGame[playerTeam];
     if (!teamData || teamData.currentRoundIndex >= localGame.rounds.length) return;
-
+  
     const timer = setInterval(() => {
       setLocalGame(prevGame => {
-        if (!prevGame || !prevGame[playerTeam] || prevGame.status !== 'in_progress') return prevGame;
-        
+        // Ensure prevGame and its rounds are valid
+        if (!prevGame || !Array.isArray(prevGame.rounds) || !prevGame[playerTeam]) return prevGame;
+        if (prevGame.status !== 'in_progress') return prevGame;
+  
         const playerTeamData = prevGame[playerTeam]!;
         const currentRoundIndex = playerTeamData.currentRoundIndex;
-        if(currentRoundIndex >= prevGame.rounds.length) return prevGame;
-
+  
+        // Ensure the current round for the player is active
+        if (currentRoundIndex >= prevGame.rounds.length) return prevGame;
+  
         const updatedRounds = [...prevGame.rounds];
         const currentRound = { ...updatedRounds[currentRoundIndex] };
-        
+  
         if (currentRound) {
-            currentRound.currentPoints = Math.max(0, currentRound.currentPoints - POINTS_DECREMENT_AMOUNT);
-            updatedRounds[currentRoundIndex] = currentRound;
-            return { ...prevGame, rounds: updatedRounds };
+          currentRound.currentPoints = Math.max(0, currentRound.currentPoints - POINTS_DECREMENT_AMOUNT);
+          updatedRounds[currentRoundIndex] = currentRound;
+          return { ...prevGame, rounds: updatedRounds };
         }
         return prevGame;
       });
@@ -542,6 +546,7 @@ export default function GameClient({ gameId }: GameClientProps) {
           const nextRoundIndex = currentRoundIndex + 1;
           const isLastRoundForPlayer = nextRoundIndex === localGame.rounds.length;
 
+          // Optimistically update local state for immediate feedback
           setLocalGame(prevGame => {
               if (!prevGame || !prevGame[playerTeam]) return null;
               
@@ -560,6 +565,7 @@ export default function GameClient({ gameId }: GameClientProps) {
             description: `Your team gets ${currentRound.currentPoints} points.`,
           });
 
+          // If this was the last round for the player, sync the final state to Firestore
           if (isLastRoundForPlayer) {
               setIsSyncing(true);
               runTransaction(firestore, async (transaction) => {
@@ -567,6 +573,7 @@ export default function GameClient({ gameId }: GameClientProps) {
                   if (!gameSnap.exists()) throw new Error("Game not found during final sync");
                   const serverGame = gameSnap.data() as Game;
 
+                  // Recalculate score based on the local game state to ensure accuracy
                   const finalScore = (localGame[playerTeam]?.score || 0) + pointsFromRound;
 
                   const finalUpdate: any = {
@@ -575,6 +582,7 @@ export default function GameClient({ gameId }: GameClientProps) {
                        lastActivityAt: serverTimestamp(),
                   };
                   
+                  // Check if the other team has also finished to end the game
                   const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
                   const otherTeamData = serverGame[otherTeamKey];
 
@@ -592,17 +600,20 @@ export default function GameClient({ gameId }: GameClientProps) {
           }
         
       } else {
+         // Apply penalty only to local state for immediate feedback
          setLocalGame(prevGame => {
             if (!prevGame || !prevGame[playerTeam]) return null;
             const newScore = prevGame[playerTeam]!.score - INCORRECT_ANSWER_PENALTY;
             return {...prevGame, [playerTeam]: { ...prevGame[playerTeam]!, score: newScore } };
         });
 
-        toast({
-          variant: 'destructive',
-          title: 'Incorrect Answer',
-          description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
-        });
+        if(playerTeam){
+            toast({
+              variant: 'destructive',
+              title: 'Incorrect Answer',
+              description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
+            });
+        }
       }
     },
     [playerTeam, firestore, gameDocRef, localGame, toast]
@@ -874,8 +885,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         </span>
       </div>
       <Scoreboard
-        team1={activeGame.team1}
-        team2={activeGame.team2}
+        game={activeGame}
         playerTeam={playerTeam}
       />
       

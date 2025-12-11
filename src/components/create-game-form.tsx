@@ -73,22 +73,22 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
 
     React.useEffect(() => {
         const currentValues = form.getValues(`rounds.${roundIndex}.letterQuestions`);
-        
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
-        
+
         const newFields = answerLetters.map((letter, index) => {
+            // Try to find an existing field for the same letter and position
             const existingField = Array.isArray(currentValues) && currentValues[index]
                 ? currentValues[index]
-                : undefined;
+                : { letter: letter.toUpperCase(), question: '', answer: '' };
+            
+            // Ensure the letter is updated if the mainAnswer changes
+            existingField.letter = letter.toUpperCase();
 
-            return {
-                letter: letter.toUpperCase(),
-                question: existingField?.question || '',
-                answer: existingField?.answer || ''
-            };
+            return existingField;
         });
 
         replace(newFields);
+        
     }, [mainAnswer, replace, form, roundIndex]);
 
 
