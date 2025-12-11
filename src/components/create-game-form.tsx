@@ -31,16 +31,16 @@ import { Skeleton } from './ui/skeleton';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
-  question: z.string().min(1, 'Question is required.'),
-  answer: z.string().min(1, 'Answer is required.'),
+  question: z.string(),
+  answer: z.string(),
 });
 
 const roundSchema = z.object({
-  mainQuestion: z.string().min(10, 'Main question must be at least 10 characters.'),
+  mainQuestion: z.string().min(5, 'Main question must be at least 5 characters.'),
   mainAnswer: z
     .string()
     .min(1, 'Main answer is required.')
-    .regex(/^[A-Z\s'ʻ‘]+$/, "Main answer can only contain uppercase letters, apostrophes, and spaces."),
+    .regex(/^[A-ZА-Я\s'ʻ‘]+$/, "Main answer can only contain uppercase letters, apostrophes, and spaces."),
   letterQuestions: z.array(letterQuestionSchema)
 });
 
@@ -76,12 +76,10 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
 
         const newFields = answerLetters.map((letter, index) => {
-            // Try to find an existing field for the same letter and position
             const existingField = Array.isArray(currentValues) && currentValues[index]
                 ? currentValues[index]
                 : { letter: letter.toUpperCase(), question: '', answer: '' };
             
-            // Ensure the letter is updated if the mainAnswer changes
             existingField.letter = letter.toUpperCase();
 
             return existingField;
@@ -110,7 +108,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
             <CardHeader>
                 <CardTitle>Letter-Reveal Questions</CardTitle>
                 <FormDescription>
-                    Provide one question for each letter in your main answer.
+                    Provide one question for each letter in your main answer. (Optional)
                 </FormDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
@@ -224,7 +222,6 @@ export default function CreateGameForm() {
                 }
                 const jsonData = JSON.parse(text);
 
-                // Make the import more flexible
                 const roundsData = jsonData.rounds?.map((round: any) => ({
                     mainQuestion: round.mainQuestion || '',
                     mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase().replace(/Т/g, 'T'),
@@ -277,15 +274,18 @@ export default function CreateGameForm() {
                 const letterIndices: Record<string, number> = {};
 
                 r.letterQuestions.forEach((lq) => {
-                    const upperLetter = lq.letter.toUpperCase();
-                    const count = letterIndices[upperLetter] || 0;
-                    const uniqueKey = `${upperLetter}_${count}`;
-                    letterIndices[upperLetter] = count + 1;
+                    // Only include letter questions that have a question text
+                    if (lq.question) {
+                        const upperLetter = lq.letter.toUpperCase();
+                        const count = letterIndices[upperLetter] || 0;
+                        const uniqueKey = `${upperLetter}_${count}`;
+                        letterIndices[upperLetter] = count + 1;
 
-                    letterQuestionsMap[uniqueKey] = { 
-                        question: lq.question,
-                        answer: lq.answer
-                    };
+                        letterQuestionsMap[uniqueKey] = { 
+                            question: lq.question,
+                            answer: lq.answer
+                        };
+                    }
                 });
 
                 return {
