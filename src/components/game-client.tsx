@@ -509,7 +509,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         // Find the active round for the player (not necessarily the same as their currentRoundIndex if they are navigating)
         const currentRoundForTimer = newGame.rounds[activeRoundIndex];
   
-        if (currentRoundForTimer && !newGame[playerTeam!]?.completedRounds.includes(activeRoundIndex)) {
+        if (currentRoundForTimer && !newGame[playerTeam!]?.completedRounds?.includes(activeRoundIndex)) {
           currentRoundForTimer.currentPoints = Math.max(0, currentRoundForTimer.currentPoints - POINTS_DECREMENT_AMOUNT);
           return newGame;
         }
@@ -639,7 +639,8 @@ export default function GameClient({ gameId }: GameClientProps) {
             if (!prevGame || !prevGame[playerTeam!]) return null;
             const newGame = JSON.parse(JSON.stringify(prevGame));
             newGame[playerTeam!]!.score = newScore;
-            // No reset of points
+            // Reset points on incorrect answer
+            newGame.rounds[activeRoundIndex].currentPoints = 1000;
             return newGame;
         });
 
@@ -650,8 +651,16 @@ export default function GameClient({ gameId }: GameClientProps) {
         });
 
         runTransaction(firestore, async transaction => {
+            const gameSnap = await transaction.get(gameDocRef);
+            if (!gameSnap.exists()) throw new Error("Game disappeared");
+
+            const serverGame = gameSnap.data() as Game;
+            const serverRounds = serverGame.rounds;
+            serverRounds[activeRoundIndex].currentPoints = 1000; // Reset points on the server too
+
             transaction.update(gameDocRef, {
                 [`${playerTeam}.score`]: newScore,
+                rounds: serverRounds,
                 lastActivityAt: serverTimestamp(),
             });
         }).catch(e => {
@@ -778,6 +787,7 @@ export default function GameClient({ gameId }: GameClientProps) {
     }
   };
   
+  // Use the live Firestore `game` for spectators, and `localGame` for players
   const activeGame = isSpectator || isAdminView ? game : localGame;
 
   const winner = useMemo(() => {
