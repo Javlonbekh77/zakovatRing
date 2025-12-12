@@ -29,6 +29,8 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { Skeleton } from './ui/skeleton';
 import Link from 'next/link';
+import { normalizeApostrophes } from '@/lib/utils';
+
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
@@ -74,7 +76,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
     });
 
     React.useEffect(() => {
-        const answerLetters = mainAnswer.replace(/\s/g, '').split('');
+        const answerLetters = normalizeApostrophes(mainAnswer).replace(/\s/g, '').split('');
         const currentValues = form.getValues(`rounds.${roundIndex}.letterQuestions`);
         
         const existingDataMap = new Map((Array.isArray(currentValues) ? currentValues : []).map(f => [f.letter, f]));
@@ -83,7 +85,6 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
              const upperLetter = letter.toUpperCase();
              if(existingDataMap.has(upperLetter)) {
                  const existingData = existingDataMap.get(upperLetter);
-                 // Ensure we don't return undefined for question/answer
                  return { letter: upperLetter, question: existingData.question || '', answer: existingData.answer || '' };
              }
              return { letter: upperLetter, question: '', answer: '' };
@@ -120,12 +121,12 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                     <div key={field.id} className="relative p-4 border rounded-md">
                         {index > 0 && <Separator className='absolute -top-3 left-0 w-full' />}
                         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                           Question for letter: <span className='font-mono text-2xl text-primary bg-primary/10 px-2 rounded-md'>{mainAnswer.replace(/\s/g, '')[index]?.toUpperCase()}</span>
+                           Question for letter: <span className='font-mono text-2xl text-primary bg-primary/10 px-2 rounded-md'>{normalizeApostrophes(mainAnswer).replace(/\s/g, '')[index]?.toUpperCase()}</span>
                         </h3>
                          <Controller
                             control={control}
                             name={`rounds.${roundIndex}.letterQuestions.${index}.letter`}
-                            defaultValue={mainAnswer.replace(/\s/g, '')[index]?.toUpperCase()}
+                            defaultValue={normalizeApostrophes(mainAnswer).replace(/\s/g, '')[index]?.toUpperCase()}
                             render={({ field }) => <input type="hidden" {...field} />}
                         />
                         <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
@@ -136,7 +137,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                                     <FormItem>
                                         <FormLabel>Question</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Question that reveals '${mainAnswer.replace(/\s/g, '')[index]?.toUpperCase()}'`} {...field} />
+                                            <Input placeholder={`Question that reveals '${normalizeApostrophes(mainAnswer).replace(/\s/g, '')[index]?.toUpperCase()}'`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -193,7 +194,7 @@ export default function CreateGameForm() {
         }
         if (existingGame) {
              const formRounds = existingGame.rounds.map(r => {
-                const answerLetters = r.mainAnswer.replace(/\s/g, '').split('');
+                const answerLetters = normalizeApostrophes(r.mainAnswer).replace(/\s/g, '').split('');
                 const letterIndices: Record<string, number> = {};
                 
                 const letterQuestions: FormLetterQuestion[] = answerLetters.map(letter => {
@@ -227,7 +228,6 @@ export default function CreateGameForm() {
     });
 
     const handleExport = useCallback(() => {
-        // Trigger validation before exporting
         form.trigger().then(isValid => {
             if (!isValid) {
                 toast({
@@ -264,10 +264,9 @@ export default function CreateGameForm() {
                 }
                 const jsonData = JSON.parse(text);
 
-                // Be more flexible with the incoming JSON structure
                 const roundsData = jsonData.rounds?.map((round: any) => ({
                     mainQuestion: round.mainQuestion || '',
-                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase().replace(/Т/g, 'T'),
+                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase(),
                     letterQuestions: Array.isArray(round.letterQuestions) ? round.letterQuestions.map((lq: any) => ({
                         letter: lq.letter || '',
                         question: lq.question || '',
@@ -323,7 +322,7 @@ export default function CreateGameForm() {
 
                 r.letterQuestions.forEach((lq) => {
                     if (lq.question && lq.answer) {
-                        const upperLetter = lq.letter.toUpperCase();
+                        const upperLetter = normalizeApostrophes(lq.letter).toUpperCase();
                         const count = letterIndices[upperLetter] || 0;
                         const uniqueKey = `${upperLetter}_${count}`;
                         letterIndices[upperLetter] = count + 1;

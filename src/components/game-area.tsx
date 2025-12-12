@@ -10,9 +10,20 @@ import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { useState } from 'react';
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Send, SkipForward } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from './ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 interface GameAreaProps {
   game: Game;
@@ -22,15 +33,19 @@ interface GameAreaProps {
   playerTeamData: Team | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
   onMainAnswerSubmit: (answer: string) => Promise<void>;
+  onSkipRound: () => Promise<void>;
 }
 
 const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
+const SKIP_ROUND_COST = 500;
+
+export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit, onSkipRound }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const isRoundCompleted = playerTeamData?.completedRounds.includes(game.rounds.indexOf(currentRound));
 
   const form = useForm<z.infer<typeof answerSchema>>({
     resolver: zodResolver(answerSchema),
@@ -40,6 +55,11 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
   const handleAnswerSubmit = async (values: z.infer<typeof answerSchema>) => {
     if (!playerTeam) {
         toast({ variant: "destructive", title: "You are a spectator!", description: "You cannot submit answers." });
+        return;
+    }
+
+    if (isRoundCompleted) {
+        toast({ title: "Round Finished", description: "You have already completed this round." });
         return;
     }
 
@@ -84,6 +104,7 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                         playerTeam={playerTeam} 
                         playerTeamData={playerTeamData}
                         onLetterReveal={onLetterReveal} 
+                        isRoundCompleted={isRoundCompleted}
                      />
                 </CardContent>
             </Card>
@@ -93,26 +114,61 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                 </CardHeader>
                 <CardContent>
                 {playerTeam ? (
-                    <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleAnswerSubmit)} className='space-y-4'>
-                        <FormField
-                        control={form.control}
-                        name="answer"
-                        render={({ field }) => (
-                            <FormItem>
-                            <FormControl>
-                                <Input placeholder="Type your final answer" {...field} disabled={isSubmitting} />
-                            </FormControl>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                        <Button type="submit" disabled={isSubmitting} className='w-full'>
-                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send />}
-                            Submit Final Answer
-                        </Button>
-                    </form>
-                    </Form>
+                    isRoundCompleted ? (
+                        <div className="text-center text-muted-foreground p-4 bg-muted rounded-md">
+                            <p className="font-semibold">Round Completed!</p>
+                            <p className="text-sm">You have finished this round. Choose another round to play.</p>
+                        </div>
+                    ) : (
+                    <div className='space-y-4'>
+                        <Form {...form}>
+                        <form onSubmit={form.handleSubmit(handleAnswerSubmit)} className='space-y-4'>
+                            <FormField
+                            control={form.control}
+                            name="answer"
+                            render={({ field }) => (
+                                <FormItem>
+                                <FormControl>
+                                    <Input placeholder="Type your final answer" {...field} disabled={isSubmitting} />
+                                </FormControl>
+                                <FormMessage />
+                                </FormItem>
+                            )}
+                            />
+                            <Button type="submit" disabled={isSubmitting} className='w-full'>
+                                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send />}
+                                Submit Final Answer
+                            </Button>
+                        </form>
+                        </Form>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button 
+                                    variant="outline" 
+                                    className="w-full"
+                                    disabled={isSubmitting || (playerTeamData?.score ?? 0) < SKIP_ROUND_COST}
+                                >
+                                    <SkipForward className="mr-2 h-4 w-4" />
+                                    Skip Round ({SKIP_ROUND_COST} pts)
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Skip this round?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will cost {SKIP_ROUND_COST} points. You will mark this round as "completed" and move to the next available one. You can come back to play this round later if you want.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={onSkipRound}>
+                                        Yes, Skip Round
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    </div>
+                    )
                 ) : (
                     <p className='text-muted-foreground text-center p-8'>You are observing this game.</p>
                 )}

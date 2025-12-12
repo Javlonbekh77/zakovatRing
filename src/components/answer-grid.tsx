@@ -11,6 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { normalizeApostrophes } from '@/lib/utils';
 
 interface AnswerGridProps {
   game: Game;
@@ -18,6 +19,7 @@ interface AnswerGridProps {
   playerTeam: 'team1' | 'team2' | null;
   playerTeamData: Team | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
+  isRoundCompleted?: boolean;
 }
 
 const letterAnswerSchema = z.object({
@@ -25,12 +27,11 @@ const letterAnswerSchema = z.object({
 });
 
 
-function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLetterReveal }: { letter: string; letterKey: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letterKey: string) => Promise<void> }) {
+function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLetterReveal, isRoundCompleted }: { letter: string; letterKey: string; game: Game; currentRound: Round; playerTeam: 'team1' | 'team2' | null, onLetterReveal: (letterKey: string) => Promise<void>, isRoundCompleted?: boolean }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   
-  // Hooks must be called unconditionally at the top level.
   const form = useForm<z.infer<typeof letterAnswerSchema>>({
     resolver: zodResolver(letterAnswerSchema),
     defaultValues: { answer: '' },
@@ -39,12 +40,11 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
   const letterQuestion = currentRound.letterQuestions[letterKey];
 
   const handleLetterSubmit = async (values: z.infer<typeof letterAnswerSchema>) => {
-    if (!playerTeam) {
-        toast({ variant: "destructive", title: "You are a spectator!", description: "You cannot interact with the game." });
+    if (!playerTeam || isRoundCompleted) {
+        toast({ variant: "destructive", title: "You cannot interact!", description: isRoundCompleted ? "This round is already completed." : "You are a spectator." });
         return;
     }
     
-    // Check for letterQuestion inside the handler, not at the top level
     if (!letterQuestion) {
         toast({ variant: "destructive", title: "Error", description: "This letter does not have a question associated with it." });
         return;
@@ -53,7 +53,7 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
     setIsSubmitting(true);
     
     try {
-        const isCorrect = letterQuestion.answer.toLowerCase().trim() === values.answer.toLowerCase().trim();
+        const isCorrect = normalizeApostrophes(letterQuestion.answer) === normalizeApostrophes(values.answer);
 
         if (isCorrect) {
             await onLetterReveal(letterKey);
@@ -76,7 +76,6 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
     }
   };
   
-  // Conditionally render the UI, but not the hooks.
   if (!letterQuestion) {
       return (
          <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card/50 opacity-50 cursor-not-allowed">
@@ -88,7 +87,7 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button disabled={!playerTeam} className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Reveal letter ${letter}`}>
+        <button disabled={!playerTeam || isRoundCompleted} className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card shadow-sm transition-all hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Reveal letter ${letter}`}>
           ?
         </button>
       </DialogTrigger>
@@ -113,7 +112,7 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={isSubmitting || !playerTeam} className="w-full">
+            <Button type="submit" disabled={isSubmitting || !playerTeam || isRoundCompleted} className="w-full">
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send />}
               Submit
             </Button>
@@ -124,16 +123,15 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
   );
 }
 
-export default function AnswerGrid({ game, currentRound, playerTeam, playerTeamData, onLetterReveal }: AnswerGridProps) {
+export default function AnswerGrid({ game, currentRound, playerTeam, playerTeamData, onLetterReveal, isRoundCompleted }: AnswerGridProps) {
   if (!currentRound?.mainAnswer) {
     return <div className='text-muted-foreground'>Answer grid not available.</div>;
   }
   
   const answerChars = currentRound.mainAnswer.split('');
-
-  const revealedLettersForRound = playerTeamData?.revealedLetters[playerTeamData.currentRoundIndex] || [];
+  const roundIndex = game.rounds.indexOf(currentRound);
+  const revealedLettersForRound = playerTeamData?.revealedLetters[roundIndex] || [];
     
-  // Keep track of used indices for duplicate letters
   const letterIndices: Record<string, number> = {};
 
   return (
@@ -157,7 +155,7 @@ export default function AnswerGrid({ game, currentRound, playerTeam, playerTeamD
                 {upperChar}
               </div>
             ) : (
-              <LetterDialog letter={char} letterKey={letterKey} game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} />
+              <LetterDialog letter={char} letterKey={letterKey} game={game} currentRound={currentRound} playerTeam={playerTeam} onLetterReveal={onLetterReveal} isRoundCompleted={isRoundCompleted} />
             )}
           </div>
         );
