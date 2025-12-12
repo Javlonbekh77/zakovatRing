@@ -11,6 +11,7 @@ import {
   runTransaction,
   serverTimestamp,
   addDoc,
+  setDoc,
 } from 'firebase/firestore';
 import {
   Table,
@@ -147,6 +148,7 @@ export default function GamesListPage() {
 
 
     const newGameData: Omit<Game, 'id'> = {
+      title: gameToClone.title, // Clone the title as well
       creatorId: user.uid,
       rounds: newRounds,
       currentRoundIndex: 0,
@@ -154,31 +156,10 @@ export default function GamesListPage() {
       createdAt: serverTimestamp(),
       lastActivityAt: serverTimestamp(),
     };
-
-    try {
-        const gameCollectionRef = collection(firestore, 'games');
-        const newDocRef = await addDoc(gameCollectionRef, newGameData);
-        
-        // Firestore automatically assigns an ID, but our structure relies on our own.
-        // It's better to create the ID client-side and use setDoc.
-        // Let's refactor this to use setDoc for consistency.
-    } catch (e) {
-        // Fallback to old method for now, but ideally we refactor handleRehost
-    }
-
-    // Refactored approach using setDoc
+    
     try {
         const newGameRef = doc(firestore, 'games', newGameId);
-        const finalGameData: Game = {
-            id: newGameId,
-            creatorId: user.uid,
-            rounds: newRounds,
-            currentRoundIndex: 0,
-            status: 'lobby',
-            createdAt: serverTimestamp(),
-            lastActivityAt: serverTimestamp(),
-        };
-        await setDoc(newGameRef, finalGameData);
+        await setDoc(newGameRef, { id: newGameId, ...newGameData });
         toast({ title: 'Game Re-hosted!', description: `A new game with code ${newGameId} has been created.`});
         router.push(`/admin/created/${newGameId}`);
 
@@ -191,8 +172,6 @@ export default function GamesListPage() {
         });
       }
     }
-
-
   }
 
   return (
@@ -226,6 +205,7 @@ export default function GamesListPage() {
           </TableCaption>
           <TableHeader>
             <TableRow>
+              <TableHead>Game Title</TableHead>
               <TableHead>Game ID</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Team 1</TableHead>
@@ -237,6 +217,7 @@ export default function GamesListPage() {
           <TableBody>
             {games.map((game) => (
               <TableRow key={game.id}>
+                <TableCell className="font-semibold">{game.title || 'Unknown Game'}</TableCell>
                 <TableCell className="font-mono font-bold">{game.id}</TableCell>
                 <TableCell>
                   <Badge variant={game.status === 'in_progress' ? 'default' : 'secondary'}>

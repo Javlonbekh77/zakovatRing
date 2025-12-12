@@ -30,6 +30,7 @@ export type GameStatus = 'lobby' | 'in_progress' | 'paused' | 'finished';
 
 export interface Game {
   id: string;
+  title?: string; // New optional title field
   creatorId: string;
   rounds: Round[];
   currentRoundIndex: number; // This can now be considered a "master" or spectator round index

@@ -32,8 +32,8 @@ import Link from 'next/link';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
-  question: z.string(), // No min requirement
-  answer: z.string(),   // No min requirement
+  question: z.string(), // Optional
+  answer: z.string(),   // Optional
 });
 
 const roundSchema = z.object({
@@ -46,6 +46,7 @@ const roundSchema = z.object({
 });
 
 const formSchema = z.object({
+  title: z.string().min(3, 'Game title must be at least 3 characters.'),
   rounds: z.array(roundSchema).min(1, 'At least one round is required.'),
 });
 
@@ -73,28 +74,30 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
     });
 
     React.useEffect(() => {
-        const currentValues = form.getValues(`rounds.${roundIndex}.letterQuestions`);
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
-
-        const newFields = answerLetters.map((letter, index) => {
-            // Find an existing field for the same letter to preserve data
-            const existingField = Array.isArray(currentValues) ? currentValues.find(f => f.letter === letter.toUpperCase()) : undefined;
-            const newField = {
-                letter: letter.toUpperCase(),
-                question: '',
-                answer: ''
-            };
-
-            const matchingCurrentField = Array.isArray(currentValues) && currentValues[index];
-            if (matchingCurrentField) {
-                 newField.question = matchingCurrentField.question;
-                 newField.answer = matchingCurrentField.answer;
-            }
-            
-            return newField;
-        });
+        const currentValues = form.getValues(`rounds.${roundIndex}.letterQuestions`);
         
-        replace(newFields);
+        const newFields = answerLetters.map((letter, index) => {
+            const existingFieldData = Array.isArray(currentValues) ? currentValues.find(f => f.letter === letter.toUpperCase()) : undefined;
+            return {
+                letter: letter.toUpperCase(),
+                question: existingFieldData?.question || '',
+                answer: existingFieldData?.answer || ''
+            };
+        });
+
+        // To preserve data when letters are just re-ordered
+        const existingDataMap = new Map((Array.isArray(currentValues) ? currentValues : []).map(f => [f.letter, f]));
+        const finalFields = answerLetters.map(letter => {
+             const upperLetter = letter.toUpperCase();
+             if(existingDataMap.has(upperLetter)) {
+                 return existingDataMap.get(upperLetter);
+             }
+             return { letter: upperLetter, question: '', answer: '' };
+        });
+
+
+        replace(finalFields);
         
     }, [mainAnswer, replace, form, roundIndex]);
 
@@ -187,6 +190,7 @@ export default function CreateGameForm() {
     const form = useForm<FormData>({
         resolver: zodResolver(formSchema),
         defaultValues: {
+            title: '',
             rounds: [{ mainQuestion: '', mainAnswer: '', letterQuestions: [] }],
         },
     });
@@ -221,7 +225,7 @@ export default function CreateGameForm() {
                     letterQuestions: letterQuestions,
                 };
             });
-            form.reset({ rounds: formRounds });
+            form.reset({ title: existingGame.title || '', rounds: formRounds });
         }
     }, [existingGame, isGameLoading, isUserLoading, form]);
 
@@ -244,7 +248,7 @@ export default function CreateGameForm() {
             }
 
             const values = form.getValues();
-            const dataStr = JSON.stringify(values, null, 2);
+            const dataStr = JSON.stringify({ title: values.title, rounds: values.rounds }, null, 2);
             const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
             const exportFileDefaultName = `timeline_game_${gameId}.json`;
 
@@ -282,8 +286,13 @@ export default function CreateGameForm() {
                 if (!roundsData) {
                     throw new Error("JSON file is missing a 'rounds' array.");
                 }
+                
+                const dataToValidate = {
+                    title: jsonData.title || jsonData.gameTitle || 'Imported Game',
+                    rounds: roundsData
+                };
 
-                const validation = formSchema.safeParse({ rounds: roundsData });
+                const validation = formSchema.safeParse(dataToValidate);
 
                 if (validation.success) {
                     form.reset(validation.data);
@@ -348,6 +357,7 @@ export default function CreateGameForm() {
 
             const gameData: Game = {
                 id: finalGameId,
+                title: values.title,
                 creatorId: user.uid,
                 rounds: gameRounds,
                 currentRoundIndex: 0,
@@ -399,9 +409,9 @@ export default function CreateGameForm() {
             <div className="container mx-auto max-w-3xl">
                 <div className="flex items-center justify-between mb-6">
                     <Button variant="outline" size="sm" asChild>
-                        <Link href="/admin/games">
+                        <Link href="/admin">
                             <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back to Games List
+                            Back to Admin
                         </Link>
                     </Button>
                      <h1 className="text-3xl font-headline font-bold">{isNewGame ? "Create New Game" : `Edit Game ${gameId}`}</h1>
@@ -409,6 +419,22 @@ export default function CreateGameForm() {
                 </div>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+
+                         <FormField
+                            control={form.control}
+                            name="title"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Game Title</FormLabel>
+                                    <FormControl>
+                                        <Input placeholder="e.g., History of Ancient Rome" {...field} />
+                                    </FormControl>
+                                    <FormDescription>A catchy title for your game.</FormDescription>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
                         <Accordion type="multiple" defaultValue={['item-0']} className="w-full">
                             {fields.map((field, index) => (
                                 <AccordionItem value={`item-${index}`} key={field.id}>
