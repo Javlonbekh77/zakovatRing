@@ -256,7 +256,7 @@ function SpectatorView({ game, user, isAdmin }: { game: Game; user: any; isAdmin
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Scoreboard game={game} playerTeam={null} />
+          <Scoreboard game={game} playerTeam={null} isSpectator={true} />
         </CardContent>
       </Card>
 
@@ -396,7 +396,6 @@ export default function GameClient({ gameId }: GameClientProps) {
   useEffect(() => {
     if (game) {
       // For players, we create a local copy to manage points countdown.
-      // For spectators, we directly use the live `game` data.
       if (teamNameFromUrl) {
          setLocalGame(game);
       }
@@ -714,7 +713,7 @@ export default function GameClient({ gameId }: GameClientProps) {
     }
   };
   
-  // Use the live Firestore `game` for spectators, and `localGame` for players
+  // Use the live Firestore `game` for spectators/admins, and `localGame` for players
   const activeGame = isSpectator || isAdminView ? game : localGame;
 
   const winner = useMemo(() => {

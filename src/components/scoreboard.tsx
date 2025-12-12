@@ -6,19 +6,22 @@ import { Swords, User, Lock } from 'lucide-react';
 interface ScoreboardProps {
   game: Game;
   playerTeam: 'team1' | 'team2' | null;
+  isSpectator?: boolean;
 }
 
 function TeamDisplay({
   team,
   isPlayer,
   gameStatus,
+  isSpectator,
 }: {
   team?: Team;
   isPlayer: boolean;
   gameStatus: Game['status'];
+  isSpectator?: boolean;
 }) {
-  // Show score only if you are the player, or if the game is finished.
-  const showScore = isPlayer || gameStatus === 'finished';
+  // Show score if you are the player, if the game is finished, or if you are a spectator.
+  const showScore = isPlayer || gameStatus === 'finished' || isSpectator;
 
   return (
     <div
@@ -56,7 +59,7 @@ function TeamDisplay({
   );
 }
 
-export default function Scoreboard({ game, playerTeam }: ScoreboardProps) {
+export default function Scoreboard({ game, playerTeam, isSpectator = false }: ScoreboardProps) {
   const { team1, team2, status } = game;
   
   return (
@@ -67,6 +70,7 @@ export default function Scoreboard({ game, playerTeam }: ScoreboardProps) {
             team={team1}
             isPlayer={playerTeam === 'team1'}
             gameStatus={status}
+            isSpectator={isSpectator}
           />
           <div className="shrink-0 text-primary p-2 bg-primary/10 rounded-full">
             <Swords className="h-8 w-8" />
@@ -75,6 +79,7 @@ export default function Scoreboard({ game, playerTeam }: ScoreboardProps) {
             team={team2}
             isPlayer={playerTeam === 'team2'}
             gameStatus={status}
+            isSpectator={isSpectator}
           />
         </div>
       </CardContent>
