@@ -45,7 +45,7 @@ const SKIP_ROUND_COST = 500;
 export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit, onSkipRound }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const isRoundCompleted = playerTeamData?.completedRounds.includes(game.rounds.indexOf(currentRound));
+  const isRoundCompleted = playerTeamData?.completedRounds?.includes(game.rounds.indexOf(currentRound));
 
   const form = useForm<z.infer<typeof answerSchema>>({
     resolver: zodResolver(answerSchema),
