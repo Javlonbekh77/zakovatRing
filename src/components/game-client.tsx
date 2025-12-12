@@ -391,6 +391,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const teamNameFromUrl = useMemo(() => searchParams.get('teamName'), [searchParams]);
   const isAdminView = useMemo(() => searchParams.get('admin') === 'true', [searchParams]);
+  const isSpectator = !teamNameFromUrl && !isAdminView;
 
   useEffect(() => {
     if (game) {
@@ -794,7 +795,6 @@ export default function GameClient({ gameId }: GameClientProps) {
     )
   }
   
-  const isSpectator = !teamNameFromUrl && !isAdminView;
   if (isSpectator || (isAdminView && !playerTeam)) {
     return <SpectatorView game={game} user={user} isAdmin={isAdminView && user?.uid === game.creatorId} />;
   }
