@@ -8,7 +8,7 @@ export default function Header() {
         <div className="flex h-16 items-center">
           <Link href="/" className="flex items-center gap-2 font-headline text-xl font-bold text-primary">
             <BrainCircuit className="h-7 w-7" />
-            <span>Zakovat Ring</span>
+            <span>TimeLine</span>
           </Link>
         </div>
       </div>

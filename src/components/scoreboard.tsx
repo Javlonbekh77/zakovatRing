@@ -19,7 +19,9 @@ function TeamDisplay({
   hasFinished: boolean;
   opponentHasFinished: boolean;
 }) {
-  const showScore = isPlayer || (hasFinished && opponentHasFinished) || !hasFinished;
+  // Show score if you are the player, OR if both teams have finished, OR if the opponent has not finished yet.
+  // This hides your score from the opponent once you finish, but not before.
+  const showScore = isPlayer || (hasFinished && opponentHasFinished) || !opponentHasFinished;
 
   return (
     <div
@@ -36,7 +38,7 @@ function TeamDisplay({
       </div>
       {isPlayer && (
         <p className="text-xs text-primary -mt-1 mb-2 text-center md:text-left">
-          Sizning jamoangiz
+          Your Team
         </p>
       )}
       <div className="text-4xl font-bold font-mono text-foreground">

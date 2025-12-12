@@ -96,12 +96,12 @@ export default function GamesListPage() {
     <div className="container mx-auto p-4 sm:p-6 md:p-8">
         <div className="flex items-center justify-between mb-6">
              <Button variant="outline" size="sm" asChild>
-                <Link href="/">
+                <Link href="/admin">
                     <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Home
+                    Back to Admin
                 </Link>
             </Button>
-            <h1 className="text-3xl font-headline font-bold">Games Admin</h1>
+            <h1 className="text-3xl font-headline font-bold">Hosted Games</h1>
             <div></div>
         </div>
 
@@ -110,7 +110,7 @@ export default function GamesListPage() {
 
       {!isLoading && games && (
         <Table>
-          <TableCaption>A list of all games created.</TableCaption>
+          <TableCaption>A list of all hosted (active or finished) games.</TableCaption>
           <TableHeader>
             <TableRow>
               <TableHead>Game ID</TableHead>
@@ -141,15 +141,9 @@ export default function GamesListPage() {
                         </Button>
                    )}
                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/spectate/${game.id}`}>
+                    <Link href={`/spectate/${game.id}?admin=true`}>
                       <Eye className="mr-2 h-4 w-4" />
-                      Spectate
-                    </Link>
-                  </Button>
-                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/admin/edit/${game.id}`}>
-                      <Edit className="mr-2 h-4 w-4" />
-                      Edit/Import
+                      Spectate/Manage
                     </Link>
                   </Button>
                   <AlertDialog>

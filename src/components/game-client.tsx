@@ -202,7 +202,7 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
   );
 }
 
-function SpectatorView({ game, user }: { game: Game; user: any }) {
+function SpectatorView({ game, user, isAdmin }: { game: Game; user: any; isAdmin: boolean }) {
     const winner = useMemo(() => {
         const activeGame = game;
         if (activeGame.status !== 'finished' || !activeGame.team1 || !activeGame.team2) return null;
@@ -253,7 +253,7 @@ function SpectatorView({ game, user }: { game: Game; user: any }) {
         </CardContent>
       </Card>
 
-      <AdminControls game={game} user={user} />
+      {isAdmin && <AdminControls game={game} user={user} />}
 
       {game.status === 'finished' && (
         <Card className="w-full text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
@@ -383,6 +383,7 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const teamNameFromUrl = useMemo(() => searchParams.get('teamName'), [searchParams]);
+  const isAdminView = useMemo(() => searchParams.get('admin') === 'true', [searchParams]);
 
   useEffect(() => {
     if (game) {
@@ -456,10 +457,10 @@ export default function GameClient({ gameId }: GameClientProps) {
             }
         }
     };
-    if (game && !playerTeam) {
+    if (game && !playerTeam && !isAdminView) {
         assignTeam();
     }
-  }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam]);
+  }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam, isAdminView]);
 
   // Effect for the points countdown timer.
   useEffect(() => {
@@ -728,7 +729,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   
   const isSpectator = !teamNameFromUrl;
   if (isSpectator) {
-    return <SpectatorView game={game} user={user} />;
+    return <SpectatorView game={game} user={user} isAdmin={isAdminView && user?.uid === game.creatorId} />;
   }
   
   const hasPlayerFinished = playerTeamData && playerTeamData.currentRoundIndex >= activeGame.rounds.length;

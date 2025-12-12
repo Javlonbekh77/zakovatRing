@@ -7,7 +7,7 @@ import { FirebaseClientProvider } from '@/firebase';
 import AuthProvider from '@/components/auth-provider';
 
 export const metadata: Metadata = {
-  title: 'Zakovat Ring',
+  title: 'TimeLine',
   description: 'An intellectual quiz game for teams.',
 };
 

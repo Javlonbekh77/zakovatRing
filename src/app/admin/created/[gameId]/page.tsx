@@ -51,9 +51,9 @@ export default function GameCreatedPage() {
           <div className="mx-auto w-fit rounded-full bg-green-100 p-4 dark:bg-green-900/50">
             <CheckCircle className="h-12 w-12 text-green-500 dark:text-green-400" />
           </div>
-          <CardTitle className="text-3xl font-headline">Game Created!</CardTitle>
+          <CardTitle className="text-3xl font-headline">Game Hosted!</CardTitle>
           <CardDescription>
-            Your game is ready. Share the code with players or the link with spectators.
+            Your game is live. Share the code with players or the link with spectators.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -66,7 +66,7 @@ export default function GameCreatedPage() {
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => copyToClipboard(`Game Code: ${gameId}`, 'code')}
+                onClick={() => copyToClipboard(gameId, 'code')}
                 aria-label="Copy game code"
               >
                 <Clipboard className="h-5 w-5" />
@@ -99,8 +99,8 @@ export default function GameCreatedPage() {
         </CardContent>
         <CardFooter>
           <Button asChild className="w-full">
-            <Link href="/">
-              <Home className="mr-2 h-4 w-4" /> Go to Homepage
+            <Link href="/admin">
+              <Home className="mr-2 h-4 w-4" /> Go to Admin Panel
             </Link>
           </Button>
         </CardFooter>
