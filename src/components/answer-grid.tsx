@@ -29,14 +29,14 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const letterQuestion = currentRound.letterQuestions[letterKey];
-
-  if (!letterQuestion) return null;
-
+  
+  // Hooks must be called unconditionally at the top level.
   const form = useForm<z.infer<typeof letterAnswerSchema>>({
     resolver: zodResolver(letterAnswerSchema),
     defaultValues: { answer: '' },
   });
+
+  const letterQuestion = currentRound.letterQuestions[letterKey];
 
   const handleLetterSubmit = async (values: z.infer<typeof letterAnswerSchema>) => {
     if (!playerTeam) {
@@ -44,6 +44,12 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
         return;
     }
     
+    // Check for letterQuestion inside the handler, not at the top level
+    if (!letterQuestion) {
+        toast({ variant: "destructive", title: "Error", description: "This letter does not have a question associated with it." });
+        return;
+    }
+
     setIsSubmitting(true);
     
     try {
@@ -69,6 +75,15 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
         form.reset();
     }
   };
+  
+  // Conditionally render the UI, but not the hooks.
+  if (!letterQuestion) {
+      return (
+         <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-md border-2 border-dashed bg-card/50 opacity-50 cursor-not-allowed">
+            ?
+        </div>
+      )
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
