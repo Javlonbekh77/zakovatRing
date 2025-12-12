@@ -45,8 +45,8 @@ service cloud.firestore {
       allow get: if true;
       allow list: if true;
       allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if false; // TODO: Add owner/admin validation once the schema is updated.
+      allow update: if isSignedIn() && request.auth.uid == resource.data.creatorId;
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.creatorId;
     }
 
     /**
