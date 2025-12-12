@@ -11,16 +11,14 @@ interface ScoreboardProps {
 function TeamDisplay({
   team,
   isPlayer,
-  hasFinished,
-  opponentHasFinished,
+  gameStatus,
 }: {
   team?: Team;
   isPlayer: boolean;
-  hasFinished: boolean;
-  opponentHasFinished: boolean;
+  gameStatus: Game['status'];
 }) {
-  // Show score if you are the player OR if the game is finished OR if the opponent has NOT finished yet.
-  const showScore = isPlayer || (hasFinished && opponentHasFinished) || !opponentHasFinished;
+  // Show score only if you are the player, or if the game is finished.
+  const showScore = isPlayer || gameStatus === 'finished';
 
   return (
     <div
@@ -48,9 +46,9 @@ function TeamDisplay({
             '-'
           )
         ) : (
-          <div className="flex items-center justify-center md:justify-start gap-2 text-3xl">
+          <div className="flex items-center justify-center md:justify-start gap-2 text-3xl text-muted-foreground">
             <Lock className="h-8 w-8" />
-            <span className="text-xl">Finished</span>
+            <span className="text-xl">Hidden</span>
           </div>
         )}
       </div>
@@ -59,12 +57,8 @@ function TeamDisplay({
 }
 
 export default function Scoreboard({ game, playerTeam }: ScoreboardProps) {
-  const { team1, team2, rounds } = game;
-  const totalRounds = rounds.length;
-
-  const team1HasFinished = team1 ? team1.currentRoundIndex >= totalRounds : false;
-  const team2HasFinished = team2 ? team2.currentRoundIndex >= totalRounds : false;
-
+  const { team1, team2, status } = game;
+  
   return (
     <Card className="w-full overflow-hidden bg-muted/50">
       <CardContent className="p-2 md:p-4">
@@ -72,8 +66,7 @@ export default function Scoreboard({ game, playerTeam }: ScoreboardProps) {
           <TeamDisplay
             team={team1}
             isPlayer={playerTeam === 'team1'}
-            hasFinished={team1HasFinished}
-            opponentHasFinished={team2HasFinished}
+            gameStatus={status}
           />
           <div className="shrink-0 text-primary p-2 bg-primary/10 rounded-full">
             <Swords className="h-8 w-8" />
@@ -81,8 +74,7 @@ export default function Scoreboard({ game, playerTeam }: ScoreboardProps) {
           <TeamDisplay
             team={team2}
             isPlayer={playerTeam === 'team2'}
-            hasFinished={team2HasFinished}
-            opponentHasFinished={team1HasFinished}
+            gameStatus={status}
           />
         </div>
       </CardContent>

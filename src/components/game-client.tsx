@@ -394,7 +394,12 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   useEffect(() => {
     if (game) {
-      setLocalGame(game);
+      // For players, we create a local copy to manage points countdown.
+      // For spectators, we directly use the live `game` data.
+      if (teamNameFromUrl) {
+         setLocalGame(game);
+      }
+      
       // Determine player team on initial load or if game data changes
       if (teamNameFromUrl) {
           if (game.team1?.name === teamNameFromUrl) setPlayerTeam('team1');
@@ -514,37 +519,61 @@ export default function GameClient({ gameId }: GameClientProps) {
   
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
-      if (!playerTeam || !localGame) return;
+      if (!playerTeam || !localGame || !firestore || !gameDocRef) return;
   
+      // Optimistically update local state for immediate UI feedback.
       setLocalGame(prevGame => {
         if (!prevGame || !prevGame[playerTeam!]) return null;
         
-        const teamData = prevGame[playerTeam!]!;
-        const currentRoundIndex = teamData.currentRoundIndex;
-  
         const newGame = JSON.parse(JSON.stringify(prevGame));
-        const newTeamData = newGame[playerTeam!]!;
+        const teamData = newGame[playerTeam!]!;
+        const currentRoundIndex = teamData.currentRoundIndex;
 
-        newTeamData.score += LETTER_REVEAL_REWARD;
-        if (!newTeamData.revealedLetters[currentRoundIndex]) {
-            newTeamData.revealedLetters[currentRoundIndex] = [];
+        teamData.score += LETTER_REVEAL_REWARD;
+        if (!teamData.revealedLetters[currentRoundIndex]) {
+            teamData.revealedLetters[currentRoundIndex] = [];
         }
-        newTeamData.revealedLetters[currentRoundIndex].push(letterKey);
-        
+        if (!teamData.revealedLetters[currentRoundIndex].includes(letterKey)) {
+             teamData.revealedLetters[currentRoundIndex].push(letterKey);
+        }
         return newGame;
       });
-  
-      toast({
-        title: 'Correct!',
-        description: `Letter revealed! You earned ${LETTER_REVEAL_REWARD} points.`,
+
+      // Update Firestore in the background.
+      runTransaction(firestore, async transaction => {
+        const gameSnap = await transaction.get(gameDocRef);
+        if (!gameSnap.exists()) throw new Error("Game disappeared");
+
+        const serverGame = gameSnap.data() as Game;
+        const serverTeamData = serverGame[playerTeam!];
+        if (!serverTeamData) throw new Error("Team not found on server");
+
+        const currentRoundIndex = serverTeamData.currentRoundIndex;
+        const newScore = serverTeamData.score + LETTER_REVEAL_REWARD;
+        
+        const revealedLettersForRound = serverTeamData.revealedLetters[currentRoundIndex] || [];
+        if (!revealedLettersForRound.includes(letterKey)) {
+            revealedLettersForRound.push(letterKey);
+        }
+
+        transaction.update(gameDocRef, {
+            [`${playerTeam}.score`]: newScore,
+            [`${playerTeam}.revealedLetters.${currentRoundIndex}`]: revealedLettersForRound,
+            lastActivityAt: serverTimestamp(),
+        });
+      }).catch(e => {
+        console.error("Failed to sync letter reveal:", e);
+        toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save letter reveal. Please check connection.'})
+        setLocalGame(game); // Revert local state on error
       });
+  
     },
-    [playerTeam, localGame, toast]
+    [playerTeam, localGame, toast, firestore, gameDocRef, game]
   );
 
   const handleMainAnswerSubmit = useCallback(
     async (answer: string) => {
-      if (!playerTeam || !localGame) {
+      if (!playerTeam || !localGame || !firestore || !gameDocRef) {
         throw new Error('Game state is not ready for submission.');
       }
       
@@ -557,6 +586,7 @@ export default function GameClient({ gameId }: GameClientProps) {
       
       if (isCorrect) {
           const pointsFromRound = currentRound.currentPoints;
+          const newScore = teamData.score + pointsFromRound;
           const nextRoundIndex = currentRoundIndex + 1;
 
           // Optimistically update local state for immediate feedback
@@ -564,8 +594,7 @@ export default function GameClient({ gameId }: GameClientProps) {
               if (!prevGame || !prevGame[playerTeam!]) return null;
               const newGame = JSON.parse(JSON.stringify(prevGame));
               const newTeamData = newGame[playerTeam!]!;
-              
-              newTeamData.score += pointsFromRound;
+              newTeamData.score = newScore;
               newTeamData.currentRoundIndex = nextRoundIndex;
               return newGame;
           });
@@ -575,13 +604,26 @@ export default function GameClient({ gameId }: GameClientProps) {
             description: `Your team gets ${currentRound.currentPoints} points.`,
           });
 
+          // Sync with Firestore
+          runTransaction(firestore, async transaction => {
+              transaction.update(gameDocRef, {
+                  [`${playerTeam}.score`]: newScore,
+                  [`${playerTeam}.currentRoundIndex`]: nextRoundIndex,
+                  lastActivityAt: serverTimestamp(),
+              });
+          }).catch(e => {
+              console.error("Failed to sync main answer:", e);
+              toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save round result.'})
+              setLocalGame(game); // Revert on error
+          });
+
       } else {
+         const newScore = teamData.score - INCORRECT_ANSWER_PENALTY;
          // Apply penalty only to local state for immediate feedback
          setLocalGame(prevGame => {
             if (!prevGame || !prevGame[playerTeam!]) return null;
             const newGame = JSON.parse(JSON.stringify(prevGame));
-            const newTeamData = newGame[playerTeam!]!;
-            newTeamData.score -= INCORRECT_ANSWER_PENALTY;
+            newGame[playerTeam!]!.score = newScore;
             return newGame;
         });
 
@@ -590,9 +632,21 @@ export default function GameClient({ gameId }: GameClientProps) {
           title: 'Incorrect Answer',
           description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
         });
+
+        // Sync penalty with Firestore
+        runTransaction(firestore, async transaction => {
+            transaction.update(gameDocRef, {
+                [`${playerTeam}.score`]: newScore,
+                lastActivityAt: serverTimestamp(),
+            });
+        }).catch(e => {
+             console.error("Failed to sync penalty:", e);
+             toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save penalty.'})
+             setLocalGame(game); // Revert on error
+        });
       }
     },
-    [playerTeam, localGame, toast]
+    [playerTeam, localGame, toast, firestore, gameDocRef, game]
   );
   
   // Sync to DB when player finishes ALL rounds
@@ -611,8 +665,6 @@ export default function GameClient({ gameId }: GameClientProps) {
         const serverGame = gameSnap.data() as Game;
         
         const finalUpdate: any = {
-          [`${playerTeam}.score`]: teamData.score,
-          [`${playerTeam}.currentRoundIndex`]: teamData.currentRoundIndex,
           lastActivityAt: serverTimestamp(),
         };
         
@@ -661,7 +713,8 @@ export default function GameClient({ gameId }: GameClientProps) {
     }
   };
   
-  const activeGame = localGame; 
+  // Use the live Firestore `game` for spectators, and `localGame` for players
+  const activeGame = isSpectator || isAdminView ? game : localGame;
 
   const winner = useMemo(() => {
     if (!activeGame || activeGame.status !== 'finished') return null;
