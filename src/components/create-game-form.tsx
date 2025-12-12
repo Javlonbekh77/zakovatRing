@@ -32,8 +32,8 @@ import Link from 'next/link';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
-  question: z.string(), // Optional
-  answer: z.string(),   // Optional
+  question: z.string(), // Now optional
+  answer: z.string(),   // Now optional
 });
 
 const roundSchema = z.object({
@@ -77,25 +77,17 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
         const currentValues = form.getValues(`rounds.${roundIndex}.letterQuestions`);
         
-        const newFields = answerLetters.map((letter, index) => {
-            const existingFieldData = Array.isArray(currentValues) ? currentValues.find(f => f.letter === letter.toUpperCase()) : undefined;
-            return {
-                letter: letter.toUpperCase(),
-                question: existingFieldData?.question || '',
-                answer: existingFieldData?.answer || ''
-            };
-        });
-
-        // To preserve data when letters are just re-ordered
         const existingDataMap = new Map((Array.isArray(currentValues) ? currentValues : []).map(f => [f.letter, f]));
+
         const finalFields = answerLetters.map(letter => {
              const upperLetter = letter.toUpperCase();
              if(existingDataMap.has(upperLetter)) {
-                 return existingDataMap.get(upperLetter);
+                 const existingData = existingDataMap.get(upperLetter);
+                 // Ensure we don't return undefined for question/answer
+                 return { letter: upperLetter, question: existingData.question || '', answer: existingData.answer || '' };
              }
              return { letter: upperLetter, question: '', answer: '' };
         });
-
 
         replace(finalFields);
         
