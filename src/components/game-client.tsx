@@ -123,10 +123,10 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
         <Button
           variant="outline"
           onClick={handleGameStatusToggle}
-          disabled={game.status === 'finished'}
+          disabled={game.status === 'finished' || game.status === 'lobby'}
         >
           {game.status === 'in_progress' ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
-          {game.status === 'in_progress' ? 'Pause Game' : game.status === 'lobby' ? 'Start Game' : 'Resume Game'}
+          {game.status === 'in_progress' ? 'Pause Game' : 'Resume Game'}
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -190,16 +190,9 @@ function SpectatorView({ game, user }: { game: Game; user: any; isAdmin: boolean
         
         if (!team1 || !team2) return null;
 
-        const team1Finished = (team1.roundsCompleted >= game.rounds.length);
-        const team2Finished = (team2.roundsCompleted >= game.rounds.length);
-
-        if (team1Finished && team2Finished) {
-            if (team1.score > team2.score) return 'team1';
-            if (team2.score > team1.score) return 'team2';
-            return 'draw'; // It's a draw
-        }
-
-        return null;
+        if (team1.score > team2.score) return 'team1';
+        if (team2.score > team1.score) return 'team2';
+        return 'draw'; // It's a draw
     }, [game]);
 
     const winner = winnerTeamKey && winnerTeamKey !== 'draw' ? game[winnerTeamKey] : null;
@@ -736,16 +729,14 @@ export default function GameClient({ gameId }: GameClientProps) {
 
     if (!team1 || !team2) return null;
 
-    const team1Finished = (team1.roundsCompleted >= activeGame.rounds.length);
-    const team2Finished = (team2.roundsCompleted >= activeGame.rounds.length);
-
-    if (team1Finished && team2Finished) {
-        if (team1.score > team2.score) return 'team1';
-        if (team2.score > team1.score) return 'team2';
-        return 'draw';
+    if (activeGame.forfeitedBy) {
+        return activeGame.forfeitedBy === 'team1' ? 'team2' : 'team1';
     }
+
+    if (team1.score > team2.score) return 'team1';
+    if (team2.score > team1.score) return 'team2';
+    return 'draw';
     
-    return null; 
   }, [activeGame]);
   
   const playerTeamData = useMemo(() => {
@@ -826,12 +817,13 @@ export default function GameClient({ gameId }: GameClientProps) {
         <div className={`mx-auto w-fit rounded-full p-4 mb-4 ${isWinner ? 'bg-green-100 dark:bg-green-900/50' : isLoser ? 'bg-red-100 dark:bg-red-900/50' : 'bg-yellow-100 dark:bg-yellow-900/50'}`}>
           {isWinner && <Smile className="h-16 w-16 text-green-500 dark:text-green-400" />}
           {isLoser && <Frown className="h-16 w-16 text-red-500 dark:text-red-400" />}
-          {isDraw && <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />}
+          {(isDraw || (!isWinner && !isLoser)) && <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />}
         </div>
         <CardHeader className="p-0">
             {isWinner && <CardTitle className="text-4xl font-headline text-green-600">Siz Yutdingiz!</CardTitle>}
             {isLoser && <CardTitle className="text-4xl font-headline text-red-600">Siz Yutqazdingiz</CardTitle>}
             {isDraw && <CardTitle className="text-4xl font-headline">Durang!</CardTitle>}
+            {!isWinner && !isLoser && !isDraw && <CardTitle className="text-4xl font-headline">O'yin Tugadi!</CardTitle>}
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground mt-4">Yakuniy hisoblar:</p>
@@ -907,7 +899,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   if (activeGame.status === 'paused') {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
-        <div className="flex flex-col items-center gap-4 text-lg">
+        <div className="flex flex-col items-center gap-4 text-lg text-center">
           <Pause className="h-12 w-12 text-primary" />
           O'yin admin tomonidan to'xtatildi...
         </div>
