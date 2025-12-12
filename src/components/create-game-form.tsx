@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useFieldArray, useWatch } from 'react-hook-form';
+import { useForm, useFieldArray, useWatch, Controller } from 'react-hook-form';
 import * as z from 'zod';
 import {
   Form,
@@ -14,25 +14,26 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Loader2, Plus, Trash, Download, Upload } from 'lucide-react';
+import { Loader2, Plus, Trash, Download, Upload, Save, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, GameStatus, FormLetterQuestion, Team } from '@/lib/types';
-import { useRouter } from 'next/navigation';
+import { Game, Round, GameStatus, FormLetterQuestion } from '@/lib/types';
+import { useRouter, useParams } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
-import { useFirestore, useUser } from '@/firebase';
+import { serverTimestamp, doc, setDoc, getDoc } from 'firebase/firestore';
+import { useFirestore, useUser, useMemoFirebase, useDoc } from '@/firebase';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { Skeleton } from './ui/skeleton';
+import Link from 'next/link';
 
 const letterQuestionSchema = z.object({
   letter: z.string(),
-  question: z.string(),
-  answer: z.string(),
+  question: z.string(), // No min requirement
+  answer: z.string(),   // No min requirement
 });
 
 const roundSchema = z.object({
@@ -40,7 +41,7 @@ const roundSchema = z.object({
   mainAnswer: z
     .string()
     .min(1, 'Main answer is required.')
-    .regex(/^[A-ZА-Я\s'ʻ‘]+$/, "Main answer can only contain uppercase letters, apostrophes, and spaces."),
+    .regex(/^[A-ZА-Я\s'ʻ‘]+$/, "Main answer can only contain uppercase letters (Latin/Cyrillic), apostrophes, and spaces."),
   letterQuestions: z.array(letterQuestionSchema)
 });
 
@@ -76,15 +77,23 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
         const answerLetters = mainAnswer.replace(/\s/g, '').split('');
 
         const newFields = answerLetters.map((letter, index) => {
-            const existingField = Array.isArray(currentValues) && currentValues[index]
-                ? currentValues[index]
-                : { letter: letter.toUpperCase(), question: '', answer: '' };
+            // Find an existing field for the same letter to preserve data
+            const existingField = Array.isArray(currentValues) ? currentValues.find(f => f.letter === letter.toUpperCase()) : undefined;
+            const newField = {
+                letter: letter.toUpperCase(),
+                question: '',
+                answer: ''
+            };
+
+            const matchingCurrentField = Array.isArray(currentValues) && currentValues[index];
+            if (matchingCurrentField) {
+                 newField.question = matchingCurrentField.question;
+                 newField.answer = matchingCurrentField.answer;
+            }
             
-            existingField.letter = letter.toUpperCase();
-
-            return existingField;
+            return newField;
         });
-
+        
         replace(newFields);
         
     }, [mainAnswer, replace, form, roundIndex]);
@@ -118,6 +127,12 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                            Question for letter: <span className='font-mono text-2xl text-primary bg-primary/10 px-2 rounded-md'>{mainAnswer.replace(/\s/g, '')[index]?.toUpperCase()}</span>
                         </h3>
+                         <Controller
+                            control={control}
+                            name={`rounds.${roundIndex}.letterQuestions.${index}.letter`}
+                            defaultValue={mainAnswer.replace(/\s/g, '')[index]?.toUpperCase()}
+                            render={({ field }) => <input type="hidden" {...field} />}
+                        />
                         <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                             <FormField
                                 control={control}
@@ -155,16 +170,19 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
 
 export default function CreateGameForm() {
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isClient, setIsClient] = useState(false);
+    const [isPageLoading, setIsPageLoading] = useState(true);
     const { toast } = useToast();
     const router = useRouter();
+    const params = useParams();
+    const gameId = params.gameId as string;
+    const isNewGame = gameId === 'new';
+
     const firestore = useFirestore();
     const { user, isUserLoading } = useUser();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        setIsClient(true);
-    }, []);
+    const gameDocRef = useMemoFirebase(() => firestore && !isNewGame ? doc(firestore, 'games', gameId) : null, [firestore, gameId, isNewGame]);
+    const { data: existingGame, isLoading: isGameLoading } = useDoc<Game>(gameDocRef);
 
     const form = useForm<FormData>({
         resolver: zodResolver(formSchema),
@@ -173,41 +191,69 @@ export default function CreateGameForm() {
         },
     });
 
+     useEffect(() => {
+        if (!isGameLoading && !isUserLoading) {
+            setIsPageLoading(false);
+        }
+        if (existingGame) {
+             const formRounds = existingGame.rounds.map(r => {
+                const answerLetters = r.mainAnswer.replace(/\s/g, '').split('');
+                const letterIndices: Record<string, number> = {};
+                
+                const letterQuestions: FormLetterQuestion[] = answerLetters.map(letter => {
+                    const upperLetter = letter.toUpperCase();
+                    const count = letterIndices[upperLetter] || 0;
+                    const key = `${upperLetter}_${count}`;
+                    letterIndices[upperLetter] = count + 1;
+                    
+                    const questionData = r.letterQuestions[key];
+
+                    return {
+                        letter: letter.toUpperCase(),
+                        question: questionData?.question || '',
+                        answer: questionData?.answer || ''
+                    };
+                });
+
+                return {
+                    mainQuestion: r.mainQuestion,
+                    mainAnswer: r.mainAnswer,
+                    letterQuestions: letterQuestions,
+                };
+            });
+            form.reset({ rounds: formRounds });
+        }
+    }, [existingGame, isGameLoading, isUserLoading, form]);
+
     const { fields, append, remove } = useFieldArray({
         control: form.control,
         name: "rounds"
     });
 
     const handleExport = useCallback(() => {
-        try {
-            const values = form.getValues();
-            const validation = formSchema.safeParse(values);
-            if (!validation.success) {
+        // Trigger validation before exporting
+        form.trigger().then(isValid => {
+            if (!isValid) {
                 toast({
                     variant: 'destructive',
                     title: 'Form is not valid',
                     description: 'Please fix the errors before exporting.',
                 });
-                console.error("Form validation errors on export:", validation.error.flatten().fieldErrors);
+                console.error("Form validation errors on export:", form.formState.errors);
                 return;
             }
 
-            const dataStr = JSON.stringify(validation.data, null, 2);
+            const values = form.getValues();
+            const dataStr = JSON.stringify(values, null, 2);
             const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-            const exportFileDefaultName = 'zakovat_game.json';
+            const exportFileDefaultName = `timeline_game_${gameId}.json`;
 
             let linkElement = document.createElement('a');
             linkElement.setAttribute('href', dataUri);
             linkElement.setAttribute('download', exportFileDefaultName);
             linkElement.click();
-
-        } catch (error) {
-             if (error instanceof Error) {
-                console.error("Export failed", error);
-                toast({ variant: 'destructive', title: 'Export Failed', description: error.message });
-            }
-        }
-    }, [form, toast]);
+        });
+    }, [form, toast, gameId]);
     
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -222,6 +268,7 @@ export default function CreateGameForm() {
                 }
                 const jsonData = JSON.parse(text);
 
+                // Be more flexible with the incoming JSON structure
                 const roundsData = jsonData.rounds?.map((round: any) => ({
                     mainQuestion: round.mainQuestion || '',
                     mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase().replace(/Т/g, 'T'),
@@ -261,21 +308,20 @@ export default function CreateGameForm() {
     async function onSubmit(values: FormData) {
         setIsSubmitting(true);
         if (!firestore || !user) {
-            toast({ variant: 'destructive', title: 'Error', description: 'You must be signed in to create a game.' });
+            toast({ variant: 'destructive', title: 'Error', description: 'You must be signed in to create or save a game.' });
             setIsSubmitting(false);
             return;
         }
 
-        try {
-            const gameId = generateGameCode(4);
+        const finalGameId = isNewGame ? generateGameCode(4) : gameId;
 
+        try {
             const gameRounds: Round[] = values.rounds.map(r => {
                 const letterQuestionsMap: Round['letterQuestions'] = {};
                 const letterIndices: Record<string, number> = {};
 
                 r.letterQuestions.forEach((lq) => {
-                    // Only include letter questions that have a question text
-                    if (lq.question) {
+                    if (lq.question && lq.answer) {
                         const upperLetter = lq.letter.toUpperCase();
                         const count = letterIndices[upperLetter] || 0;
                         const uniqueKey = `${upperLetter}_${count}`;
@@ -298,27 +344,30 @@ export default function CreateGameForm() {
                 };
             });
 
-            const gameDocRef = doc(firestore, 'games', gameId);
+            const gameDocRef = doc(firestore, 'games', finalGameId);
 
-            const gameData: Omit<Game, 'team1' | 'team2'> = {
-                id: gameId,
+            const gameData: Game = {
+                id: finalGameId,
                 creatorId: user.uid,
                 rounds: gameRounds,
-                currentRoundIndex: 0, // Master index
-                status: 'lobby' as GameStatus,
-                createdAt: serverTimestamp(),
+                currentRoundIndex: 0,
+                status: 'lobby',
+                createdAt: isNewGame ? serverTimestamp() : existingGame?.createdAt || serverTimestamp(),
                 lastActivityAt: serverTimestamp(),
             };
             
-
-            await setDoc(gameDocRef, gameData);
+            await setDoc(gameDocRef, gameData, { merge: true });
 
             toast({
-                title: 'Game Created!',
-                description: `Game with code ${gameId} has been created.`,
+                title: `Game ${isNewGame ? 'Created' : 'Saved'}!`,
+                description: `Game with code ${finalGameId} has been ${isNewGame ? 'created' : 'updated'}.`,
             });
-
-            router.push(`/admin/created/${gameId}`);
+            
+            if (isNewGame) {
+                router.push(`/admin/created/${finalGameId}`);
+            } else {
+                router.push('/admin/games');
+            }
 
         } catch (error) {
             if (error instanceof FirestorePermissionError) {
@@ -335,124 +384,139 @@ export default function CreateGameForm() {
         }
     }
 
-    if (!isClient || isUserLoading) {
+    if (isPageLoading) {
         return (
-            <div className="space-y-8">
-                <Skeleton className="w-full h-40 rounded-lg bg-muted animate-pulse" />
-                <Skeleton className="w-full h-12 rounded-lg bg-muted animate-pulse" />
-                <Skeleton className="w-full h-12 rounded-lg bg-muted animate-pulse" />
-            </div>
+            <div className="flex-1 p-4 sm:p-6 md:p-8">
+                 <div className="container mx-auto max-w-3xl">
+                     <Skeleton className="w-full h-screen rounded-lg bg-muted animate-pulse" />
+                 </div>
+             </div>
         );
     }
 
     return (
-        <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-                <Accordion type="multiple" defaultValue={['item-0']} className="w-full">
-                    {fields.map((field, index) => (
-                         <AccordionItem value={`item-${index}`} key={field.id}>
-                            <div className="flex items-center w-full">
-                                <AccordionTrigger className="flex-1">
-                                    <span className='font-bold text-lg'>Round {index + 1}</span>
-                                </AccordionTrigger>
-                                {fields.length > 1 && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="ml-2 text-destructive hover:bg-destructive/10"
-                                        onClick={() => remove(index)}
-                                    >
-                                        <Trash className="h-4 w-4" />
-                                    </Button>
-                                )}
-                            </div>
-                            <AccordionContent className="space-y-6 pt-4">
-                                <FormField
-                                    control={form.control}
-                                    name={`rounds.${index}.mainQuestion`}
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Main Question</FormLabel>
-                                            <FormControl>
-                                                <Textarea placeholder="e.g., What is the capital of France?" {...field} />
-                                            </FormControl>
-                                            <FormDescription>This is the main riddle for this round.</FormDescription>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name={`rounds.${index}.mainAnswer`}
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Main Answer</FormLabel>
-                                            <FormControl>
-                                                <Input
-                                                    placeholder="e.g., PARIS"
-                                                    {...field}
-                                                    onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                                                    autoCapitalize="characters"
-                                                    autoComplete="off"
-                                                />
-                                            </FormControl>
-                                            <FormDescription>The answer to the main question. Use only uppercase letters and spaces.</FormDescription>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <LetterFields roundIndex={index} control={form.control} form={form} />
-                            </AccordionContent>
-                        </AccordionItem>
-                    ))}
-                </Accordion>
-
-                <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => append({ mainQuestion: '', mainAnswer: '', letterQuestions: [] })}
-                >
-                    <Plus className="mr-2 h-4 w-4" /> Add Round
-                </Button>
-
-                <Separator />
-                
-                <div className="flex flex-col sm:flex-row gap-4">
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => fileInputRef.current?.click()}
-                        className='w-full'
-                    >
-                        <Upload className="mr-2 h-4 w-4" /> Import from JSON
+        <div className="flex-1 p-4 sm:p-6 md:p-8">
+            <div className="container mx-auto max-w-3xl">
+                <div className="flex items-center justify-between mb-6">
+                    <Button variant="outline" size="sm" asChild>
+                        <Link href="/admin/games">
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back to Games List
+                        </Link>
                     </Button>
-                     <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                        accept="application/json"
-                    />
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={handleExport}
-                        className='w-full'
-                    >
-                       <Download className="mr-2 h-4 w-4" /> Export to JSON
-                    </Button>
+                     <h1 className="text-3xl font-headline font-bold">{isNewGame ? "Create New Game" : `Edit Game ${gameId}`}</h1>
+                    <div></div>
                 </div>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                        <Accordion type="multiple" defaultValue={['item-0']} className="w-full">
+                            {fields.map((field, index) => (
+                                <AccordionItem value={`item-${index}`} key={field.id}>
+                                    <div className="flex items-center w-full">
+                                        <AccordionTrigger className="flex-1">
+                                            <span className='font-bold text-lg'>Round {index + 1}</span>
+                                        </AccordionTrigger>
+                                        {fields.length > 1 && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="ml-2 text-destructive hover:bg-destructive/10"
+                                                onClick={() => remove(index)}
+                                            >
+                                                <Trash className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <AccordionContent className="space-y-6 pt-4">
+                                        <FormField
+                                            control={form.control}
+                                            name={`rounds.${index}.mainQuestion`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Main Question</FormLabel>
+                                                    <FormControl>
+                                                        <Textarea placeholder="e.g., What is the capital of France?" {...field} />
+                                                    </FormControl>
+                                                    <FormDescription>This is the main riddle for this round.</FormDescription>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={form.control}
+                                            name={`rounds.${index}.mainAnswer`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Main Answer</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            placeholder="e.g., PARIS"
+                                                            {...field}
+                                                            onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                                                            autoCapitalize="characters"
+                                                            autoComplete="off"
+                                                        />
+                                                    </FormControl>
+                                                    <FormDescription>The answer to the main question. Use only uppercase letters and spaces.</FormDescription>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <LetterFields roundIndex={index} control={form.control} form={form} />
+                                    </AccordionContent>
+                                </AccordionItem>
+                            ))}
+                        </Accordion>
+
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => append({ mainQuestion: '', mainAnswer: '', letterQuestions: [] })}
+                        >
+                            <Plus className="mr-2 h-4 w-4" /> Add Round
+                        </Button>
+
+                        <Separator />
+                        
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => fileInputRef.current?.click()}
+                                className='w-full'
+                            >
+                                <Upload className="mr-2 h-4 w-4" /> Import from JSON
+                            </Button>
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleFileChange}
+                                className="hidden"
+                                accept="application/json"
+                            />
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={handleExport}
+                                className='w-full'
+                            >
+                            <Download className="mr-2 h-4 w-4" /> Export to JSON
+                            </Button>
+                        </div>
 
 
-                <Button type="submit" className="w-full" size="lg" disabled={isSubmitting || !user}>
-                    {isSubmitting ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                       "Create Game"
-                    )}
-                </Button>
-            </form>
-        </Form>
+                        <Button type="submit" className="w-full" size="lg" disabled={isSubmitting || !user}>
+                            {isSubmitting ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                                <Save className="mr-2 h-4 w-4" />
+                            )}
+                            {isNewGame ? 'Create and Host Game' : 'Save Changes'}
+                        </Button>
+                    </form>
+                </Form>
+             </div>
+        </div>
     );
 }

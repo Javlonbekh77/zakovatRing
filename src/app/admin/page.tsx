@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LayoutTemplate, Play, FilePlus2 } from 'lucide-react';
+import { Play, FilePlus2 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function AdminPage() {
@@ -11,23 +11,23 @@ export default function AdminPage() {
       <div className="container mx-auto max-w-4xl">
          <div className="text-center mb-12">
              <h1 className="font-headline text-4xl font-bold">Admin Panel</h1>
-             <p className="text-muted-foreground mt-2">Create and manage game templates, or view hosted games.</p>
+             <p className="text-muted-foreground mt-2">Create a new game or manage your previously hosted games.</p>
          </div>
 
          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <Card className="shadow-lg hover:shadow-xl transition-shadow">
                 <CardHeader className="text-center">
                     <div className="mx-auto w-fit rounded-full bg-primary/10 p-4 mb-4">
-                        <LayoutTemplate className="h-10 w-10 text-primary" />
+                        <FilePlus2 className="h-10 w-10 text-primary" />
                     </div>
-                    <CardTitle className="font-headline text-2xl">Manage Templates</CardTitle>
+                    <CardTitle className="font-headline text-2xl">Create Game</CardTitle>
                     <CardDescription>
-                        Create, view, and edit reusable game templates.
+                        Design a new game with your own questions and rounds.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className='flex justify-center'>
                     <Button asChild>
-                        <Link href="/admin/templates">View Templates</Link>
+                        <Link href="/admin/edit/new">Create New Game</Link>
                     </Button>
                 </CardContent>
             </Card>
@@ -37,9 +37,9 @@ export default function AdminPage() {
                     <div className="mx-auto w-fit rounded-full bg-secondary p-4 mb-4">
                         <Play className="h-10 w-10 text-secondary-foreground" />
                     </div>
-                    <CardTitle className="font-headline text-2xl">View Hosted Games</CardTitle>
+                    <CardTitle className="font-headline text-2xl">Hosted Games</CardTitle>
                     <CardDescription>
-                        See a list of all active, paused, or finished games.
+                        View, manage, or re-host your previously created games.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className='flex justify-center'>

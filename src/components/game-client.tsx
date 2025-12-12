@@ -31,7 +31,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Badge } from './ui/badge';
 import { useDoc, useFirestore, useMemoFirebase, useUser } from '@/firebase';
-import { doc, runTransaction, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,14 +58,19 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
   const handleGameStatusToggle = async () => {
     if (!firestore) return;
     const gameDocRef = doc(firestore, 'games', game.id);
-    const newStatus = game.status === 'in_progress' ? 'paused' : 'in_progress';
+    let newStatus: GameStatus = game.status === 'in_progress' ? 'paused' : 'in_progress';
+    
+    // If resuming from lobby, start the first round for both teams
+    if (game.status === 'lobby' && newStatus === 'in_progress' && game.team1 && game.team2) {
+       // This logic is simplified; starting is handled by team2 joining
+    } else if (game.status === 'finished') {
+        return; // Cannot change status of a finished game
+    }
+
     try {
-      await runTransaction(firestore, async (transaction) => {
-        transaction.update(gameDocRef, {
-          status: newStatus,
-          [`rounds.${game.currentRoundIndex}.status`]: newStatus,
-          lastActivityAt: serverTimestamp(),
-        });
+      await updateDoc(gameDocRef, {
+        status: newStatus,
+        lastActivityAt: serverTimestamp(),
       });
       toast({ title: `Game ${newStatus === 'paused' ? 'Paused' : 'Resumed'}` });
     } catch (e) {
@@ -83,7 +88,9 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
         if (!gameSnap.exists()) throw new Error('Game does not exist.');
         const currentGame = gameSnap.data() as Game;
 
-        if (currentGame.currentRoundIndex >= currentGame.rounds.length - 1) {
+        const isLastRound = currentGame.currentRoundIndex >= currentGame.rounds.length - 1;
+
+        if (isLastRound) {
           transaction.update(gameDocRef, {
             status: 'finished',
             lastActivityAt: serverTimestamp(),
@@ -91,14 +98,12 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
         } else {
           const nextIndex = currentGame.currentRoundIndex + 1;
           transaction.update(gameDocRef, {
-            [`rounds.${currentGame.currentRoundIndex}.status`]: 'finished',
-            currentRoundIndex: nextIndex,
-            [`rounds.${nextIndex}.status`]: 'in_progress',
+            currentRoundIndex: nextIndex, // This is the master index
             lastActivityAt: serverTimestamp(),
           });
         }
       });
-      toast({ title: 'Round Skipped' });
+      toast({ title: 'Round Skipped (Master)' });
     } catch (e) {
       if (e instanceof Error)
         toast({ variant: 'destructive', title: 'Error', description: e.message });
@@ -141,10 +146,10 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
         <Button
           variant="outline"
           onClick={handleGameStatusToggle}
-          disabled={game.status === 'finished' || game.status === 'lobby'}
+          disabled={game.status === 'finished'}
         >
           {game.status === 'in_progress' ? <Pause /> : <Play />}
-          {game.status === 'in_progress' ? 'Pause Game' : 'Resume Game'}
+          {game.status === 'in_progress' ? 'Pause Game' : game.status === 'lobby' ? 'Start Game' : 'Resume Game'}
         </Button>
         <Button
           variant="outline"
@@ -205,19 +210,21 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
 function SpectatorView({ game, user, isAdmin }: { game: Game; user: any; isAdmin: boolean }) {
     const winner = useMemo(() => {
         const activeGame = game;
-        if (activeGame.status !== 'finished' || !activeGame.team1 || !activeGame.team2) return null;
-        
-        const team1Finished = activeGame.team1?.currentRoundIndex === activeGame.rounds.length;
-        const team2Finished = activeGame.team2?.currentRoundIndex === activeGame.rounds.length;
-
-        if (!team1Finished || !team2Finished) return null;
-
+        if (activeGame.status !== 'finished') return null;
         if (activeGame.forfeitedBy) {
           return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
         }
-        if (activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
-        if (activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
-        return null; // Draw
+
+        const team1Finished = activeGame.team1 && activeGame.team1.currentRoundIndex >= activeGame.rounds.length;
+        const team2Finished = activeGame.team2 && activeGame.team2.currentRoundIndex >= activeGame.rounds.length;
+
+        if (team1Finished && team2Finished) {
+            if (activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
+            if (activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
+            return null; // Draw
+        }
+        
+        return null;
     }, [game]);
 
 
@@ -388,8 +395,13 @@ export default function GameClient({ gameId }: GameClientProps) {
   useEffect(() => {
     if (game) {
       setLocalGame(game);
+      // Determine player team on initial load or if game data changes
+      if (teamNameFromUrl) {
+          if (game.team1?.name === teamNameFromUrl) setPlayerTeam('team1');
+          else if (game.team2?.name === teamNameFromUrl) setPlayerTeam('team2');
+      }
     }
-  }, [game]);
+  }, [game, teamNameFromUrl]);
 
 
   // Effect for joining the game.
@@ -397,9 +409,12 @@ export default function GameClient({ gameId }: GameClientProps) {
     const assignTeam = async () => {
         if (!teamNameFromUrl || !firestore || !gameId || !user || playerTeam || !game) return;
         
-        if (game.status !== 'lobby' && game.team1?.name !== teamNameFromUrl && game.team2?.name !== teamNameFromUrl) {
-           toast({ variant: 'destructive', title: 'Game is not in lobby', description: 'You can only spectate.'});
-           return;
+        if (game.status !== 'lobby') {
+            const alreadyJoined = game.team1?.name === teamNameFromUrl || game.team2?.name === teamNameFromUrl;
+            if (!alreadyJoined) {
+                toast({ variant: 'destructive', title: 'Game in Progress', description: 'You can only spectate an active game.'});
+                return;
+            }
         }
 
         const docRef = doc(firestore, 'games', gameId);
@@ -442,7 +457,7 @@ export default function GameClient({ gameId }: GameClientProps) {
                         [`${newTeamSlot}`]: newTeamData,
                         lastActivityAt: serverTimestamp(),
                     };
-                    if (newTeamSlot === 'team2') {
+                    if (gameData.team1 && newTeamSlot === 'team2') {
                         updateData.status = 'in_progress';
                     }
                     transaction.update(docRef, updateData);
@@ -461,33 +476,34 @@ export default function GameClient({ gameId }: GameClientProps) {
         assignTeam();
     }
   }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam, isAdminView]);
-
+  
   // Effect for the points countdown timer.
   useEffect(() => {
     if (!localGame || !playerTeam || localGame.status !== 'in_progress') return;
   
     const teamData = localGame[playerTeam];
-    if (!teamData || teamData.currentRoundIndex >= localGame.rounds.length) return;
+    if (!teamData || !localGame.rounds || !Array.isArray(localGame.rounds)) return;
+
+    if (teamData.currentRoundIndex >= localGame.rounds.length) return;
   
     const timer = setInterval(() => {
       setLocalGame(prevGame => {
-        // Ensure prevGame and its rounds are valid
-        if (!prevGame || !Array.isArray(prevGame.rounds) || !prevGame[playerTeam]) return prevGame;
+        if (!prevGame || !Array.isArray(prevGame.rounds) || !prevGame[playerTeam!]) return prevGame;
         if (prevGame.status !== 'in_progress') return prevGame;
   
-        const playerTeamData = prevGame[playerTeam]!;
+        const playerTeamData = prevGame[playerTeam!]!;
         const currentRoundIndex = playerTeamData.currentRoundIndex;
   
-        // Ensure the current round for the player is active
         if (currentRoundIndex >= prevGame.rounds.length) return prevGame;
   
-        const updatedRounds = [...prevGame.rounds];
-        const currentRound = { ...updatedRounds[currentRoundIndex] };
+        // Create a deep copy to avoid mutation issues
+        const newGame = JSON.parse(JSON.stringify(prevGame));
+        const currentRound = newGame.rounds[currentRoundIndex];
   
         if (currentRound) {
           currentRound.currentPoints = Math.max(0, currentRound.currentPoints - POINTS_DECREMENT_AMOUNT);
-          updatedRounds[currentRoundIndex] = currentRound;
-          return { ...prevGame, rounds: updatedRounds };
+          // Return the deeply copied and modified game state
+          return newGame;
         }
         return prevGame;
       });
@@ -501,22 +517,19 @@ export default function GameClient({ gameId }: GameClientProps) {
       if (!playerTeam || !localGame) return;
   
       setLocalGame(prevGame => {
-        if (!prevGame || !prevGame[playerTeam]) return null;
+        if (!prevGame || !prevGame[playerTeam!]) return null;
         
-        const teamData = prevGame[playerTeam]!;
+        const teamData = prevGame[playerTeam!]!;
         const currentRoundIndex = teamData.currentRoundIndex;
   
-        const newGame = { 
-            ...prevGame,
-            [playerTeam]: {
-                ...teamData,
-                score: teamData.score + LETTER_REVEAL_REWARD,
-                revealedLetters: {
-                    ...teamData.revealedLetters,
-                    [currentRoundIndex]: [...(teamData.revealedLetters[currentRoundIndex] || []), letterKey]
-                }
-            }
-        };
+        const newGame = JSON.parse(JSON.stringify(prevGame));
+        const newTeamData = newGame[playerTeam!]!;
+
+        newTeamData.score += LETTER_REVEAL_REWARD;
+        if (!newTeamData.revealedLetters[currentRoundIndex]) {
+            newTeamData.revealedLetters[currentRoundIndex] = [];
+        }
+        newTeamData.revealedLetters[currentRoundIndex].push(letterKey);
         
         return newGame;
       });
@@ -531,7 +544,7 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   const handleMainAnswerSubmit = useCallback(
     async (answer: string) => {
-      if (!playerTeam || !localGame || !gameDocRef || !firestore) {
+      if (!playerTeam || !localGame) {
         throw new Error('Game state is not ready for submission.');
       }
       
@@ -545,20 +558,16 @@ export default function GameClient({ gameId }: GameClientProps) {
       if (isCorrect) {
           const pointsFromRound = currentRound.currentPoints;
           const nextRoundIndex = currentRoundIndex + 1;
-          const isLastRoundForPlayer = nextRoundIndex === localGame.rounds.length;
 
           // Optimistically update local state for immediate feedback
           setLocalGame(prevGame => {
-              if (!prevGame || !prevGame[playerTeam]) return null;
+              if (!prevGame || !prevGame[playerTeam!]) return null;
+              const newGame = JSON.parse(JSON.stringify(prevGame));
+              const newTeamData = newGame[playerTeam!]!;
               
-              return { 
-                  ...prevGame,
-                  [playerTeam]: {
-                      ...prevGame[playerTeam]!,
-                      score: prevGame[playerTeam]!.score + pointsFromRound,
-                      currentRoundIndex: nextRoundIndex,
-                  }
-              };
+              newTeamData.score += pointsFromRound;
+              newTeamData.currentRoundIndex = nextRoundIndex;
+              return newGame;
           });
           
           toast({
@@ -566,60 +575,66 @@ export default function GameClient({ gameId }: GameClientProps) {
             description: `Your team gets ${currentRound.currentPoints} points.`,
           });
 
-          // If this was the last round for the player, sync the final state to Firestore
-          if (isLastRoundForPlayer) {
-              setIsSyncing(true);
-              runTransaction(firestore, async (transaction) => {
-                  const gameSnap = await transaction.get(gameDocRef);
-                  if (!gameSnap.exists()) throw new Error("Game not found during final sync");
-                  const serverGame = gameSnap.data() as Game;
-
-                  // Recalculate score based on the local game state to ensure accuracy
-                  const finalScore = (localGame[playerTeam]?.score || 0) + pointsFromRound;
-
-                  const finalUpdate: any = {
-                      [`${playerTeam}.score`]: finalScore,
-                      [`${playerTeam}.currentRoundIndex`]: nextRoundIndex,
-                       lastActivityAt: serverTimestamp(),
-                  };
-                  
-                  // Check if the other team has also finished to end the game
-                  const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
-                  const otherTeamData = serverGame[otherTeamKey];
-
-                  if (otherTeamData && otherTeamData.currentRoundIndex === localGame.rounds.length) {
-                     finalUpdate.status = 'finished';
-                  }
-
-                  transaction.update(gameDocRef, finalUpdate);
-              }).catch(e => {
-                  console.error("Failed to sync final game state:", e);
-                  toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save final game result. Please check your connection.'})
-              }).finally(() => {
-                  setIsSyncing(false);
-              });
-          }
-        
       } else {
          // Apply penalty only to local state for immediate feedback
          setLocalGame(prevGame => {
-            if (!prevGame || !prevGame[playerTeam]) return null;
-            const newScore = prevGame[playerTeam]!.score - INCORRECT_ANSWER_PENALTY;
-            return {...prevGame, [playerTeam]: { ...prevGame[playerTeam]!, score: newScore } };
+            if (!prevGame || !prevGame[playerTeam!]) return null;
+            const newGame = JSON.parse(JSON.stringify(prevGame));
+            const newTeamData = newGame[playerTeam!]!;
+            newTeamData.score -= INCORRECT_ANSWER_PENALTY;
+            return newGame;
         });
 
-        if(playerTeam){
-            toast({
-              variant: 'destructive',
-              title: 'Incorrect Answer',
-              description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
-            });
-        }
+        toast({
+          variant: 'destructive',
+          title: 'Incorrect Answer',
+          description: `That's not right. Your team loses ${INCORRECT_ANSWER_PENALTY} points.`,
+        });
       }
     },
-    [playerTeam, firestore, gameDocRef, localGame, toast]
+    [playerTeam, localGame, toast]
   );
   
+  // Sync to DB when player finishes ALL rounds
+  useEffect(() => {
+    if (!playerTeam || !localGame || !firestore || !gameDocRef) return;
+
+    const teamData = localGame[playerTeam];
+    const hasPlayerFinished = teamData && teamData.currentRoundIndex >= localGame.rounds.length;
+
+    if (hasPlayerFinished && !isSyncing) {
+      setIsSyncing(true);
+      runTransaction(firestore, async (transaction) => {
+        const gameSnap = await transaction.get(gameDocRef);
+        if (!gameSnap.exists()) throw new Error("Game not found during final sync");
+
+        const serverGame = gameSnap.data() as Game;
+        
+        const finalUpdate: any = {
+          [`${playerTeam}.score`]: teamData.score,
+          [`${playerTeam}.currentRoundIndex`]: teamData.currentRoundIndex,
+          lastActivityAt: serverTimestamp(),
+        };
+        
+        // Check if the other team has also finished to end the game
+        const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
+        const otherTeamData = serverGame[otherTeamKey];
+        if (otherTeamData && otherTeamData.currentRoundIndex >= localGame.rounds.length) {
+          finalUpdate.status = 'finished';
+        }
+
+        transaction.update(gameDocRef, finalUpdate);
+      }).then(() => {
+        toast({ title: "Game Finished!", description: "Your results have been saved." });
+      }).catch(e => {
+        console.error("Failed to sync final game state:", e);
+        toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save final game result. Please check your connection.'})
+      }).finally(() => {
+        setIsSyncing(false);
+      });
+    }
+  }, [localGame, playerTeam, firestore, gameDocRef, isSyncing, toast]);
+
   const handleForfeit = async () => {
     if (!firestore || !playerTeam || !game) return;
     setIsSyncing(true);
@@ -655,7 +670,6 @@ export default function GameClient({ gameId }: GameClientProps) {
         return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
     }
     
-    // Check if both teams have finished
     const team1Finished = activeGame.team1 && activeGame.team1.currentRoundIndex >= activeGame.rounds.length;
     const team2Finished = activeGame.team2 && activeGame.team2.currentRoundIndex >= activeGame.rounds.length;
 
@@ -727,8 +741,8 @@ export default function GameClient({ gameId }: GameClientProps) {
     )
   }
   
-  const isSpectator = !teamNameFromUrl;
-  if (isSpectator) {
+  const isSpectator = !teamNameFromUrl && !isAdminView;
+  if (isSpectator || (isAdminView && !playerTeam)) {
     return <SpectatorView game={game} user={user} isAdmin={isAdminView && user?.uid === game.creatorId} />;
   }
   

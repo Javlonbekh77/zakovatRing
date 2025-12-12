@@ -19,8 +19,7 @@ function TeamDisplay({
   hasFinished: boolean;
   opponentHasFinished: boolean;
 }) {
-  // Show score if you are the player, OR if both teams have finished, OR if the opponent has not finished yet.
-  // This hides your score from the opponent once you finish, but not before.
+  // Show score if you are the player OR if the game is finished OR if the opponent has NOT finished yet.
   const showScore = isPlayer || (hasFinished && opponentHasFinished) || !opponentHasFinished;
 
   return (
@@ -51,7 +50,7 @@ function TeamDisplay({
         ) : (
           <div className="flex items-center justify-center md:justify-start gap-2 text-3xl">
             <Lock className="h-8 w-8" />
-            <span>Finished</span>
+            <span className="text-xl">Finished</span>
           </div>
         )}
       </div>
