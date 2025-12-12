@@ -25,6 +25,8 @@ import {
   Home,
   ArrowRight,
   Lock,
+  Smile,
+  Frown,
 } from 'lucide-react';
 import Scoreboard from './scoreboard';
 import GameArea from './game-area';
@@ -85,37 +87,6 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
     }
   };
 
-  const handleSkipRound = async () => {
-    if (!firestore) return;
-    const gameDocRef = doc(firestore, 'games', game.id);
-    try {
-      await runTransaction(firestore, async (transaction) => {
-        const gameSnap = await transaction.get(gameDocRef);
-        if (!gameSnap.exists()) throw new Error('Game does not exist.');
-        const currentGame = gameSnap.data() as Game;
-
-        const isLastRound = currentGame.currentRoundIndex >= currentGame.rounds.length - 1;
-
-        if (isLastRound) {
-          transaction.update(gameDocRef, {
-            status: 'finished',
-            lastActivityAt: serverTimestamp(),
-          });
-        } else {
-          const nextIndex = currentGame.currentRoundIndex + 1;
-          transaction.update(gameDocRef, {
-            currentRoundIndex: nextIndex, // This is the master index
-            lastActivityAt: serverTimestamp(),
-          });
-        }
-      });
-      toast({ title: 'Round Skipped (Master)' });
-    } catch (e) {
-      if (e instanceof Error)
-        toast({ variant: 'destructive', title: 'Error', description: e.message });
-    }
-  };
-
   const disqualifyTeam = async (teamId: 'team1' | 'team2') => {
     if (!firestore || !game[teamId]) return;
     const gameDocRef = doc(firestore, 'games', game.id);
@@ -154,7 +125,7 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
           onClick={handleGameStatusToggle}
           disabled={game.status === 'finished'}
         >
-          {game.status === 'in_progress' ? <Pause /> : <Play />}
+          {game.status === 'in_progress' ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
           {game.status === 'in_progress' ? 'Pause Game' : game.status === 'lobby' ? 'Start Game' : 'Resume Game'}
         </Button>
         <AlertDialog>
@@ -207,30 +178,31 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
 }
 
 function SpectatorView({ game, user }: { game: Game; user: any; isAdmin: boolean }) {
-    const winner = useMemo(() => {
-        const activeGame = game;
-        if (activeGame.status !== 'finished') return null;
-        if (activeGame.forfeitedBy) {
-            const otherTeamKey = activeGame.forfeitedBy === 'team1' ? 'team2' : 'team1';
-            const otherTeamData = activeGame[otherTeamKey];
-            // Only declare a winner if the other team has also finished
-            if (otherTeamData && otherTeamData.roundsCompleted >= activeGame.rounds.length) {
-                 return otherTeamData;
-            }
-        }
+    const winnerTeamKey = useMemo(() => {
+        if (game.status !== 'finished') return null;
 
-        const team1Finished = activeGame.team1 && activeGame.team1.roundsCompleted >= activeGame.rounds.length;
-        const team2Finished = activeGame.team2 && activeGame.team2.roundsCompleted >= activeGame.rounds.length;
-
-        if (team1Finished && team2Finished) {
-            if (activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
-            if (activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
-            return null; // Draw
+        if (game.forfeitedBy) {
+            return game.forfeitedBy === 'team1' ? 'team2' : 'team1';
         }
         
+        const team1 = game.team1;
+        const team2 = game.team2;
+        
+        if (!team1 || !team2) return null;
+
+        const team1Finished = (team1.roundsCompleted >= game.rounds.length);
+        const team2Finished = (team2.roundsCompleted >= game.rounds.length);
+
+        if (team1Finished && team2Finished) {
+            if (team1.score > team2.score) return 'team1';
+            if (team2.score > team1.score) return 'team2';
+            return 'draw'; // It's a draw
+        }
+
         return null;
     }, [game]);
 
+    const winner = winnerTeamKey && winnerTeamKey !== 'draw' ? game[winnerTeamKey] : null;
 
   if (!Array.isArray(game.rounds)) {
     return (
@@ -274,12 +246,14 @@ function SpectatorView({ game, user }: { game: Game; user: any; isAdmin: boolean
           </div>
           <CardHeader className="pt-0">
             <CardTitle className="text-4xl font-headline">Game Over!</CardTitle>
-            {winner ? (
+            {winnerTeamKey === 'draw' ? (
+                <CardDescription className="text-xl">It's a draw!</CardDescription>
+            ) : winner ? (
               <CardDescription className="text-xl">
                 <span className="font-bold text-primary">{winner.name}</span> wins!
               </CardDescription>
             ) : (
-              <CardDescription className="text-xl">It's a draw!</CardDescription>
+              <CardDescription className="text-xl">The results are in!</CardDescription>
             )}
             {game.forfeitedBy && game[game.forfeitedBy] && (
               <CardDescription className="text-sm text-destructive mt-2">
@@ -402,15 +376,11 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   useEffect(() => {
     if (game) {
-      // For players, initialize a local game state to manage points countdown independently
-      if (!isSpectator && !isAdminView) {
-          // Only set local game if it hasn't been set, or if the server version is newer
-          // This simple logic might need enhancement for conflict resolution
+      if (!isSpectator) {
           if (!localGame) {
              setLocalGame(game);
           }
       } else {
-         // Spectators always see the live version
          setLocalGame(game);
       }
       
@@ -424,7 +394,6 @@ export default function GameClient({ gameId }: GameClientProps) {
       if (team && game[team]) {
         setActiveRoundIndex(game[team]!.currentRoundIndex);
       } else if (isSpectator || isAdminView) {
-        // Master/spectator view follows the game's main round index
         setActiveRoundIndex(game.currentRoundIndex);
       }
     }
@@ -506,8 +475,6 @@ export default function GameClient({ gameId }: GameClientProps) {
   
     const teamData = localGame[playerTeam];
     if (!teamData || !localGame.rounds || !Array.isArray(localGame.rounds)) return;
-
-    if (teamData.roundsCompleted >= localGame.rounds.length) return;
   
     const timer = setInterval(() => {
       setLocalGame(prevGame => {
@@ -515,20 +482,18 @@ export default function GameClient({ gameId }: GameClientProps) {
         if (prevGame.status !== 'in_progress') return prevGame;
   
         const newGame = JSON.parse(JSON.stringify(prevGame));
-        
-        // This timer should affect ALL non-completed rounds
-        newGame.rounds.forEach((round: Round, index: number) => {
-             if (!newGame[playerTeam!]?.completedRounds?.includes(index)) {
-                  round.currentPoints = Math.max(0, round.currentPoints - POINTS_DECREMENT_AMOUNT);
-             }
-        });
-        return newGame;
-
+        const currentRoundForTimer = newGame.rounds[activeRoundIndex];
+  
+        if (currentRoundForTimer && !newGame[playerTeam!]?.completedRounds?.includes(activeRoundIndex)) {
+          currentRoundForTimer.currentPoints = Math.max(0, currentRoundForTimer.currentPoints - POINTS_DECREMENT_AMOUNT);
+          return newGame;
+        }
+        return prevGame;
       });
     }, POINTS_DECREMENT_INTERVAL);
   
     return () => clearInterval(timer);
-  }, [localGame, playerTeam]);
+  }, [localGame, playerTeam, activeRoundIndex]);
   
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
@@ -742,13 +707,12 @@ export default function GameClient({ gameId }: GameClientProps) {
 
         const finalUpdate: any = {
             [`${playerTeam}.roundsCompleted`]: serverGame.rounds.length,
-            forfeitedBy: playerTeam,
             lastActivityAt: serverTimestamp(),
         };
 
         const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
         const otherTeamData = serverGame[otherTeamKey];
-        if (otherTeamData && (otherTeamData.roundsCompleted >= serverGame.rounds.length || serverGame.forfeitedBy === otherTeamKey)) {
+        if (otherTeamData && (otherTeamData.roundsCompleted >= serverGame.rounds.length)) {
             finalUpdate.status = 'finished';
         }
 
@@ -762,18 +726,23 @@ export default function GameClient({ gameId }: GameClientProps) {
 }, [playerTeam, localGame, firestore, gameDocRef, isSyncing, toast]);
 
   
-  const activeGame = localGame;
+  const activeGame = isSpectator || isAdminView ? game : localGame;
 
-  const winner = useMemo(() => {
+  const winnerTeamKey = useMemo(() => {
     if (!activeGame || activeGame.status !== 'finished') return null;
     
-    const team1Finished = activeGame.team1 && (activeGame.team1.roundsCompleted >= activeGame.rounds.length || activeGame.forfeitedBy === 'team1');
-    const team2Finished = activeGame.team2 && (activeGame.team2.roundsCompleted >= activeGame.rounds.length || activeGame.forfeitedBy === 'team2');
+    const team1 = activeGame.team1;
+    const team2 = activeGame.team2;
+
+    if (!team1 || !team2) return null;
+
+    const team1Finished = (team1.roundsCompleted >= activeGame.rounds.length);
+    const team2Finished = (team2.roundsCompleted >= activeGame.rounds.length);
 
     if (team1Finished && team2Finished) {
-        if (activeGame.team1!.score > activeGame.team2!.score) return activeGame.team1;
-        if (activeGame.team2!.score > activeGame.team1!.score) return activeGame.team2;
-        return null; // Draw
+        if (team1.score > team2.score) return 'team1';
+        if (team2.score > team1.score) return 'team2';
+        return 'draw';
     }
     
     return null; 
@@ -843,6 +812,10 @@ export default function GameClient({ gameId }: GameClientProps) {
   const hasPlayerFinishedAllRounds = playerTeamData && playerTeamData.roundsCompleted >= activeGame.rounds.length;
 
   if (activeGame.status === 'finished') {
+    const isWinner = playerTeam && winnerTeamKey === playerTeam;
+    const isLoser = playerTeam && winnerTeamKey && winnerTeamKey !== 'draw' && winnerTeamKey !== playerTeam;
+    const isDraw = winnerTeamKey === 'draw';
+
     return (
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
         {isSyncing && (
@@ -850,26 +823,18 @@ export default function GameClient({ gameId }: GameClientProps) {
                 <Loader2 className="h-5 w-5 animate-spin" />
             </div>
         )}
-        <div className="mx-auto w-fit rounded-full bg-yellow-100 p-4 dark:bg-yellow-900/50 mb-4">
-          <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />
+        <div className={`mx-auto w-fit rounded-full p-4 mb-4 ${isWinner ? 'bg-green-100 dark:bg-green-900/50' : isLoser ? 'bg-red-100 dark:bg-red-900/50' : 'bg-yellow-100 dark:bg-yellow-900/50'}`}>
+          {isWinner && <Smile className="h-16 w-16 text-green-500 dark:text-green-400" />}
+          {isLoser && <Frown className="h-16 w-16 text-red-500 dark:text-red-400" />}
+          {isDraw && <Trophy className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />}
         </div>
         <CardHeader className="p-0">
-          <CardTitle className="text-4xl font-headline">Game Over!</CardTitle>
-          {winner ? (
-            <CardDescription className="text-xl">
-              <span className="font-bold text-primary">{winner.name}</span> wins!
-            </CardDescription>
-          ) : (
-            <CardDescription className="text-xl">It's a draw!</CardDescription>
-          )}
-          {activeGame.forfeitedBy && activeGame[activeGame.forfeitedBy] && (
-            <CardDescription className="text-sm text-destructive mt-2">
-              Game was forfeited by {activeGame[activeGame.forfeitedBy]?.name}.
-            </CardDescription>
-          )}
+            {isWinner && <CardTitle className="text-4xl font-headline text-green-600">Siz Yutdingiz!</CardTitle>}
+            {isLoser && <CardTitle className="text-4xl font-headline text-red-600">Siz Yutqazdingiz</CardTitle>}
+            {isDraw && <CardTitle className="text-4xl font-headline">Durang!</CardTitle>}
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">Final Scores:</p>
+          <p className="text-muted-foreground mt-4">Yakuniy hisoblar:</p>
           <div className="flex justify-around mt-4">
             {activeGame.team1 && (
               <div className="text-lg">
@@ -887,7 +852,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         </CardContent>
         <CardFooter>
           <Button asChild className="w-full">
-            <Link href="/">Play Again</Link>
+            <Link href="/">Bosh Sahifa</Link>
           </Button>
         </CardFooter>
       </Card>
@@ -898,8 +863,8 @@ export default function GameClient({ gameId }: GameClientProps) {
       return (
         <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
             <CardHeader>
-                <CardTitle>You've Finished!</CardTitle>
-                <CardDescription>Waiting for the other team to finish to see the final results.</CardDescription>
+                <CardTitle>Barcha roundlarni yakunladingiz!</CardTitle>
+                <CardDescription>Yakuniy natijalarni ko'rish uchun ikkinchi jamoa o'yinni tugatishini kuting.</CardDescription>
             </CardHeader>
             <CardContent>
                 <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
@@ -915,23 +880,23 @@ export default function GameClient({ gameId }: GameClientProps) {
           <div className="mx-auto w-fit rounded-full bg-primary/10 p-4 mb-4">
             <Users className="h-12 w-12 text-primary" />
           </div>
-          <CardTitle className="font-headline text-3xl">Game Lobby</CardTitle>
+          <CardTitle className="font-headline text-3xl">O'yin Lobisi</CardTitle>
           <CardDescription>
-            Waiting for the second player to join...
+            Ikkinchi o'yinchi qo'shilishi kutilmoqda...
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="font-mono text-xl p-3 bg-muted rounded-md">
-            Game Code: <span className="font-bold tracking-widest">{activeGame.id}</span>
+            O'yin Kodi: <span className="font-bold tracking-widest">{activeGame.id}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
             <div className="p-4 border rounded-md">
-              <h3 className="font-bold">Team 1</h3>
-              <p>{activeGame.team1?.name || 'Waiting...'}</p>
+              <h3 className="font-bold">1-Jamoa</h3>
+              <p>{activeGame.team1?.name || 'Kutilmoqda...'}</p>
             </div>
             <div className="p-4 border rounded-md">
-              <h3 className="font-bold">Team 2</h3>
-              <p>{activeGame.team2?.name || 'Waiting...'}</p>
+              <h3 className="font-bold">2-Jamoa</h3>
+              <p>{activeGame.team2?.name || 'Kutilmoqda...'}</p>
             </div>
           </div>
         </CardContent>
@@ -944,7 +909,7 @@ export default function GameClient({ gameId }: GameClientProps) {
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg">
           <Pause className="h-12 w-12 text-primary" />
-          Game is paused by the admin...
+          O'yin admin tomonidan to'xtatildi...
         </div>
       </div>
     );
@@ -956,7 +921,7 @@ export default function GameClient({ gameId }: GameClientProps) {
             <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
                 <div className="flex flex-col items-center gap-4 text-lg">
                     <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                    Loading...
+                    Yuklanmoqda...
                 </div>
             </div>
         );
@@ -964,8 +929,8 @@ export default function GameClient({ gameId }: GameClientProps) {
      return (
         <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
             <CardHeader>
-                <CardTitle>Error</CardTitle>
-                <CardDescription>Could not load the current round. Please refresh the page.</CardDescription>
+                <CardTitle>Xatolik</CardTitle>
+                <CardDescription>Joriy roundni yuklab bo'lmadi. Iltimos, sahifani yangilang.</CardDescription>
             </CardHeader>
         </Card>
       );
@@ -982,7 +947,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         )}
       <div className="text-center p-2 bg-muted text-muted-foreground rounded-md flex justify-between items-center">
         <span>
-          Game Code: <strong className="font-mono">{activeGame.id}</strong>
+          O'yin Kodi: <strong className="font-mono">{activeGame.id}</strong>
         </span>
         <RoundNavigator
           totalRounds={activeGame.rounds.length}
@@ -1019,20 +984,20 @@ export default function GameClient({ gameId }: GameClientProps) {
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" className="w-full" disabled={isSyncing}>
-                  <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
+                  <AlertTriangle className="mr-2 h-4 w-4" /> O'yinni tugatish
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure you want to forfeit?</AlertDialogTitle>
+                  <AlertDialogTitle>O'yinni tugatishga ishonchingiz komilmi?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This action will lock in your current score and end the game for your team. You won't be able to answer any more questions. The final result will be shown when the other team also finishes.
+                    Bu amal joriy hisobingizni saqlab qoladi va o'yinni siz uchun yakunlaydi. Siz boshqa savollarga javob bera olmaysiz. Yakuniy natija ikkinchi jamoa ham o'yinni tugatgandan so'ng ko'rsatiladi.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>Bekor qilish</AlertDialogCancel>
                   <AlertDialogAction onClick={handleForfeit}>
-                    Yes, Forfeit My Game
+                    Ha, o'yinni tugatish
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1042,3 +1007,5 @@ export default function GameClient({ gameId }: GameClientProps) {
     </div>
   );
 }
+
+    
