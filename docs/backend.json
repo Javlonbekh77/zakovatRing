@@ -109,8 +109,7 @@
       },
       "required": [
         "id",
-        "teamName",
-        "score"
+        "teamName"
       ]
     },
     "LetterRevealQuestion": {
@@ -137,10 +136,7 @@
         }
       },
       "required": [
-        "id",
-        "questionId",
-        "letterRevealQuestionText",
-        "revealedLetterIndex"
+        "id"
       ]
     }
   },
