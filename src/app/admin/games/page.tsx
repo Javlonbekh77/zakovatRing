@@ -10,7 +10,6 @@ import {
   doc,
   runTransaction,
   serverTimestamp,
-  addDoc,
   setDoc,
 } from 'firebase/firestore';
 import {
@@ -74,7 +73,10 @@ export default function GamesListPage() {
   const { data: games, isLoading, error } = useCollection<Game>(gamesQuery);
 
   const handleDelete = async (gameId: string) => {
-    if (!firestore) return;
+    if (!firestore || !user) {
+        toast({variant: 'destructive', title: 'Error', description: 'You must be signed in to delete a game.'});
+        return;
+    }
     const gameDocRef = doc(firestore, 'games', gameId);
     try {
       await deleteDoc(gameDocRef);
@@ -139,27 +141,27 @@ export default function GamesListPage() {
 
     const newGameId = generateGameCode(4);
 
-    const newRounds: Round[] = gameToClone.rounds.map(r => ({
-      ...r,
-      status: 'pending',
-      currentPoints: 1000,
-      winner: null,
-    }));
-
-
-    const newGameData: Omit<Game, 'id'> = {
-      title: gameToClone.title, // Clone the title as well
-      creatorId: user.uid,
-      rounds: newRounds,
-      currentRoundIndex: 0,
-      status: 'lobby',
-      createdAt: serverTimestamp(),
-      lastActivityAt: serverTimestamp(),
-    };
-    
     try {
+        const newRounds: Round[] = gameToClone.rounds.map(r => ({
+          ...r,
+          status: 'pending',
+          currentPoints: 1000,
+          winner: null,
+        }));
+
+        const newGameData: Game = {
+          id: newGameId,
+          title: gameToClone.title,
+          creatorId: user.uid,
+          rounds: newRounds,
+          currentRoundIndex: 0,
+          status: 'lobby',
+          createdAt: serverTimestamp(),
+          lastActivityAt: serverTimestamp(),
+        };
+        
         const newGameRef = doc(firestore, 'games', newGameId);
-        await setDoc(newGameRef, { id: newGameId, ...newGameData });
+        await setDoc(newGameRef, newGameData);
         toast({ title: 'Game Re-hosted!', description: `A new game with code ${newGameId} has been created.`});
         router.push(`/admin/created/${newGameId}`);
 
