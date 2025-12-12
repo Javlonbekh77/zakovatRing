@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Lock } from 'lucide-react';
 import { Button } from './ui/button';
 import {
   Tooltip,
@@ -14,6 +14,7 @@ interface RoundNavigatorProps {
   activeRoundIndex: number;
   completedRounds: number[];
   onSelectRound: (index: number) => void;
+  playerCurrentRoundIndex: number;
 }
 
 export default function RoundNavigator({
@@ -21,6 +22,7 @@ export default function RoundNavigator({
   activeRoundIndex,
   completedRounds,
   onSelectRound,
+  playerCurrentRoundIndex
 }: RoundNavigatorProps) {
   return (
     <TooltipProvider>
@@ -28,6 +30,17 @@ export default function RoundNavigator({
         {Array.from({ length: totalRounds }).map((_, index) => {
           const isCompleted = completedRounds.includes(index);
           const isActive = index === activeRoundIndex;
+          const isLocked = index > playerCurrentRoundIndex;
+
+          let tooltipMessage = `Round ${index + 1}`;
+          if (isCompleted) {
+              tooltipMessage += ' (Completed)';
+          } else if (isLocked) {
+              tooltipMessage += ' (Locked)';
+          } else {
+              tooltipMessage += ' (In Progress)';
+          }
+
 
           return (
             <Tooltip key={index}>
@@ -39,9 +52,11 @@ export default function RoundNavigator({
                     isCompleted && !isActive ? 'bg-green-100 dark:bg-green-900 border-green-500' : ''
                   }`}
                   onClick={() => onSelectRound(index)}
-                  disabled={!isCompleted && index > completedRounds.length }
+                  disabled={isLocked}
                 >
-                  {isCompleted ? (
+                  {isLocked ? (
+                    <Lock className="h-4 w-4 text-muted-foreground" />
+                  ) : isCompleted ? (
                     <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
                   ) : (
                     <span className="font-bold">{index + 1}</span>
@@ -49,11 +64,7 @@ export default function RoundNavigator({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>
-                  Round {index + 1}
-                  {isCompleted ? ' (Completed)' : ''}
-                  {index > completedRounds.length ? ' (Locked)' : ''}
-                </p>
+                <p>{tooltipMessage}</p>
               </TooltipContent>
             </Tooltip>
           );

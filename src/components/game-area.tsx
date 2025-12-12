@@ -10,9 +10,10 @@ import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { useState } from 'react';
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Send, SkipForward } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from './ui/badge';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 
 interface GameAreaProps {
   game: Game;
@@ -22,16 +23,18 @@ interface GameAreaProps {
   playerTeamData: Team | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
   onMainAnswerSubmit: (answer: string) => Promise<void>;
+  onSkipRound: () => Promise<void>;
 }
 
 const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
+export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit, onSkipRound }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const isRoundCompleted = playerTeamData?.completedRounds?.includes(game.rounds.indexOf(currentRound));
+  const canSkip = playerTeamData && playerTeamData.score >= 500;
 
   const form = useForm<z.infer<typeof answerSchema>>({
     resolver: zodResolver(answerSchema),
@@ -127,6 +130,27 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                             </Button>
                         </form>
                         </Form>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                             <Button variant="outline" className="w-full" disabled={!canSkip || isSubmitting}>
+                                <SkipForward className="mr-2 h-4 w-4" /> Skip Round (500 Points)
+                             </Button>
+                          </AlertDialogTrigger>
+                           <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you sure you want to skip?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will cost 500 points. The current round will be marked as completed (with 0 points awarded) and you will move to the next available round.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={onSkipRound}>
+                                        Yes, Skip Round
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                           </AlertDialogContent>
+                        </AlertDialog>
                     </div>
                     )
                 ) : (

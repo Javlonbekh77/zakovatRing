@@ -54,6 +54,7 @@ const POINTS_DECREMENT_INTERVAL = 5000; // 5 seconds
 const POINTS_DECREMENT_AMOUNT = 10; // 10 points
 const LETTER_REVEAL_REWARD = 10;
 const INCORRECT_ANSWER_PENALTY = 20;
+const SKIP_ROUND_COST = 500;
 
 
 function AdminControls({ game, user }: { game: Game; user: any }) {
@@ -156,13 +157,6 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
           {game.status === 'in_progress' ? <Pause /> : <Play />}
           {game.status === 'in_progress' ? 'Pause Game' : game.status === 'lobby' ? 'Start Game' : 'Resume Game'}
         </Button>
-        <Button
-          variant="outline"
-          onClick={handleSkipRound}
-          disabled={game.status !== 'in_progress'}
-        >
-          <SkipForward /> Skip Round
-        </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="destructive" disabled={!game.team1}>
@@ -217,7 +211,12 @@ function SpectatorView({ game, user }: { game: Game; user: any; isAdmin: boolean
         const activeGame = game;
         if (activeGame.status !== 'finished') return null;
         if (activeGame.forfeitedBy) {
-          return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
+            const otherTeamKey = activeGame.forfeitedBy === 'team1' ? 'team2' : 'team1';
+            const otherTeamData = activeGame[otherTeamKey];
+            // Only declare a winner if the other team has also finished
+            if (otherTeamData && otherTeamData.roundsCompleted >= activeGame.rounds.length) {
+                 return otherTeamData;
+            }
         }
 
         const team1Finished = activeGame.team1 && activeGame.team1.roundsCompleted >= activeGame.rounds.length;
@@ -403,7 +402,17 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   useEffect(() => {
     if (game) {
-      setLocalGame(game);
+      // For players, initialize a local game state to manage points countdown independently
+      if (!isSpectator && !isAdminView) {
+          // Only set local game if it hasn't been set, or if the server version is newer
+          // This simple logic might need enhancement for conflict resolution
+          if (!localGame) {
+             setLocalGame(game);
+          }
+      } else {
+         // Spectators always see the live version
+         setLocalGame(game);
+      }
       
       let team: 'team1' | 'team2' | null = null;
       if (teamNameFromUrl) {
@@ -415,10 +424,11 @@ export default function GameClient({ gameId }: GameClientProps) {
       if (team && game[team]) {
         setActiveRoundIndex(game[team]!.currentRoundIndex);
       } else if (isSpectator || isAdminView) {
+        // Master/spectator view follows the game's main round index
         setActiveRoundIndex(game.currentRoundIndex);
       }
     }
-  }, [game, teamNameFromUrl, isSpectator, isAdminView]);
+  }, [game, teamNameFromUrl, isSpectator, isAdminView, localGame]);
 
 
   // Effect for joining the game.
@@ -504,22 +514,21 @@ export default function GameClient({ gameId }: GameClientProps) {
         if (!prevGame || !Array.isArray(prevGame.rounds) || !prevGame[playerTeam!]) return prevGame;
         if (prevGame.status !== 'in_progress') return prevGame;
   
-        // Create a deep copy to avoid mutation issues
         const newGame = JSON.parse(JSON.stringify(prevGame));
         
-        // Find the active round for the player (not necessarily the same as their currentRoundIndex if they are navigating)
-        const currentRoundForTimer = newGame.rounds[activeRoundIndex];
-  
-        if (currentRoundForTimer && !newGame[playerTeam!]?.completedRounds?.includes(activeRoundIndex)) {
-          currentRoundForTimer.currentPoints = Math.max(0, currentRoundForTimer.currentPoints - POINTS_DECREMENT_AMOUNT);
-          return newGame;
-        }
-        return prevGame;
+        // This timer should affect ALL non-completed rounds
+        newGame.rounds.forEach((round: Round, index: number) => {
+             if (!newGame[playerTeam!]?.completedRounds?.includes(index)) {
+                  round.currentPoints = Math.max(0, round.currentPoints - POINTS_DECREMENT_AMOUNT);
+             }
+        });
+        return newGame;
+
       });
     }, POINTS_DECREMENT_INTERVAL);
   
     return () => clearInterval(timer);
-  }, [localGame, playerTeam, activeRoundIndex]);
+  }, [localGame, playerTeam]);
   
   const handleLetterReveal = useCallback(
     async (letterKey: string) => {
@@ -640,7 +649,6 @@ export default function GameClient({ gameId }: GameClientProps) {
             if (!prevGame || !prevGame[playerTeam!]) return null;
             const newGame = JSON.parse(JSON.stringify(prevGame));
             newGame[playerTeam!]!.score = newScore;
-            // The points timer will continue from its current state, no reset needed here
             return newGame;
         });
 
@@ -665,7 +673,59 @@ export default function GameClient({ gameId }: GameClientProps) {
     [playerTeam, localGame, toast, firestore, gameDocRef, game, activeRoundIndex]
   );
   
-  const handlePlayerFinish = useCallback(async () => {
+  const handleSkipRound = useCallback(async () => {
+    if (!playerTeam || !localGame || !firestore || !gameDocRef) return;
+    const teamData = localGame[playerTeam];
+    if (!teamData || teamData.score < SKIP_ROUND_COST) {
+        toast({ variant: 'destructive', title: 'Not enough points!', description: `You need ${SKIP_ROUND_COST} points to skip a round.`});
+        return;
+    }
+
+    const newScore = teamData.score - SKIP_ROUND_COST;
+    const newCompletedRounds = [...(teamData.completedRounds || []), activeRoundIndex];
+    
+    let nextRoundToPlay = teamData.currentRoundIndex;
+    if (activeRoundIndex === teamData.currentRoundIndex) {
+        let nextIndex = activeRoundIndex + 1;
+        while(nextIndex < localGame.rounds.length && newCompletedRounds.includes(nextIndex)){
+            nextIndex++;
+        }
+        nextRoundToPlay = nextIndex;
+    }
+    if (nextRoundToPlay < localGame.rounds.length) {
+      setActiveRoundIndex(nextRoundToPlay);
+    }
+    
+    setLocalGame(prevGame => {
+        if (!prevGame || !prevGame[playerTeam!]) return null;
+        const newGame = JSON.parse(JSON.stringify(prevGame));
+        const newTeamData = newGame[playerTeam!]!;
+        newTeamData.score = newScore;
+        newTeamData.completedRounds = newCompletedRounds;
+        newTeamData.roundsCompleted = newCompletedRounds.length;
+        newTeamData.currentRoundIndex = nextRoundToPlay;
+        return newGame;
+    });
+
+    toast({ title: 'Round Skipped', description: `You spent ${SKIP_ROUND_COST} points.` });
+
+    runTransaction(firestore, async transaction => {
+        transaction.update(gameDocRef, {
+            [`${playerTeam}.score`]: newScore,
+            [`${playerTeam}.completedRounds`]: newCompletedRounds,
+            [`${playerTeam}.roundsCompleted`]: newCompletedRounds.length,
+            [`${playerTeam}.currentRoundIndex`]: nextRoundToPlay,
+            lastActivityAt: serverTimestamp(),
+        });
+    }).catch(e => {
+        console.error("Failed to sync skip round:", e);
+        toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save skip round action.' })
+        setLocalGame(game);
+    });
+
+  }, [playerTeam, localGame, firestore, gameDocRef, activeRoundIndex, toast, game]);
+
+  const handleForfeit = useCallback(async () => {
     if (!playerTeam || !localGame || !firestore || !gameDocRef || isSyncing) return;
 
     const teamData = localGame[playerTeam];
@@ -680,19 +740,15 @@ export default function GameClient({ gameId }: GameClientProps) {
 
         const serverGame = gameSnap.data() as Game;
 
-        // Mark this team as finished by setting their completedRounds to the total number of rounds
-        const finalCompletedRounds = Array.from({ length: serverGame.rounds.length }, (_, i) => i);
-
         const finalUpdate: any = {
             [`${playerTeam}.roundsCompleted`]: serverGame.rounds.length,
-            [`${playerTeam}.completedRounds`]: finalCompletedRounds,
+            forfeitedBy: playerTeam,
             lastActivityAt: serverTimestamp(),
         };
 
         const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
         const otherTeamData = serverGame[otherTeamKey];
-        // If the other team has also finished, end the game
-        if (otherTeamData && otherTeamData.roundsCompleted >= serverGame.rounds.length) {
+        if (otherTeamData && (otherTeamData.roundsCompleted >= serverGame.rounds.length || serverGame.forfeitedBy === otherTeamKey)) {
             finalUpdate.status = 'finished';
         }
 
@@ -706,22 +762,17 @@ export default function GameClient({ gameId }: GameClientProps) {
 }, [playerTeam, localGame, firestore, gameDocRef, isSyncing, toast]);
 
   
-  // Use the live Firestore `game` for spectators, and `localGame` for players
-  const activeGame = isSpectator || isAdminView ? game : localGame;
+  const activeGame = localGame;
 
   const winner = useMemo(() => {
     if (!activeGame || activeGame.status !== 'finished') return null;
-
-    if (activeGame.forfeitedBy) {
-        return activeGame.forfeitedBy === 'team1' ? activeGame.team2 : activeGame.team1;
-    }
     
-    const team1Finished = activeGame.team1 && activeGame.team1.roundsCompleted >= activeGame.rounds.length;
-    const team2Finished = activeGame.team2 && activeGame.team2.roundsCompleted >= activeGame.rounds.length;
+    const team1Finished = activeGame.team1 && (activeGame.team1.roundsCompleted >= activeGame.rounds.length || activeGame.forfeitedBy === 'team1');
+    const team2Finished = activeGame.team2 && (activeGame.team2.roundsCompleted >= activeGame.rounds.length || activeGame.forfeitedBy === 'team2');
 
     if (team1Finished && team2Finished) {
-        if (activeGame.team1.score > activeGame.team2.score) return activeGame.team1;
-        if (activeGame.team2.score > activeGame.team1.score) return activeGame.team2;
+        if (activeGame.team1!.score > activeGame.team2!.score) return activeGame.team1;
+        if (activeGame.team2!.score > activeGame.team1!.score) return activeGame.team2;
         return null; // Draw
     }
     
@@ -938,6 +989,7 @@ export default function GameClient({ gameId }: GameClientProps) {
           activeRoundIndex={activeRoundIndex}
           completedRounds={playerTeamData?.completedRounds || []}
           onSelectRound={setActiveRoundIndex}
+          playerCurrentRoundIndex={playerTeamData?.currentRoundIndex || 0}
         />
         <span>
           Round:{' '}
@@ -952,7 +1004,7 @@ export default function GameClient({ gameId }: GameClientProps) {
       />
       
       <GameArea
-        key={activeRoundIndex} // Add key to force re-render on round change
+        key={activeRoundIndex}
         game={activeGame}
         currentRound={currentRound}
         localCurrentPoints={currentRound.currentPoints}
@@ -960,26 +1012,27 @@ export default function GameClient({ gameId }: GameClientProps) {
         playerTeamData={playerTeamData}
         onLetterReveal={handleLetterReveal}
         onMainAnswerSubmit={handleMainAnswerSubmit}
+        onSkipRound={handleSkipRound}
       />
       {playerTeam && (
           <div className='flex gap-4'>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" className="w-full" disabled={isSyncing}>
-                  <AlertTriangle className="mr-2 h-4 w-4" /> Finish Game
+                  <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure you want to finish?</AlertDialogTitle>
+                  <AlertDialogTitle>Are you sure you want to forfeit?</AlertDialogTitle>
                   <AlertDialogDescription>
                     This action will lock in your current score and end the game for your team. You won't be able to answer any more questions. The final result will be shown when the other team also finishes.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handlePlayerFinish}>
-                    Yes, Finish My Game
+                  <AlertDialogAction onClick={handleForfeit}>
+                    Yes, Forfeit My Game
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
