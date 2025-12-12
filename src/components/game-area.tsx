@@ -10,20 +10,9 @@ import { Form, FormControl, FormField, FormItem, FormMessage } from './ui/form';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { useState } from 'react';
-import { Loader2, Send, SkipForward } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from './ui/badge';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 
 interface GameAreaProps {
   game: Game;
@@ -33,16 +22,13 @@ interface GameAreaProps {
   playerTeamData: Team | null;
   onLetterReveal: (letterKey: string) => Promise<void>;
   onMainAnswerSubmit: (answer: string) => Promise<void>;
-  onSkipRound: () => Promise<void>;
 }
 
 const answerSchema = z.object({
   answer: z.string().min(1, 'Answer cannot be empty.'),
 });
 
-const SKIP_ROUND_COST = 500;
-
-export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit, onSkipRound }: GameAreaProps) {
+export default function GameArea({ game, currentRound, localCurrentPoints, playerTeam, playerTeamData, onLetterReveal, onMainAnswerSubmit }: GameAreaProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const isRoundCompleted = playerTeamData?.completedRounds?.includes(game.rounds.indexOf(currentRound));
@@ -141,32 +127,6 @@ export default function GameArea({ game, currentRound, localCurrentPoints, playe
                             </Button>
                         </form>
                         </Form>
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <Button 
-                                    variant="outline" 
-                                    className="w-full"
-                                    disabled={isSubmitting || (playerTeamData?.score ?? 0) < SKIP_ROUND_COST}
-                                >
-                                    <SkipForward className="mr-2 h-4 w-4" />
-                                    Skip Round ({SKIP_ROUND_COST} pts)
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Skip this round?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        This will cost {SKIP_ROUND_COST} points. You will mark this round as "completed" and move to the next available one. You can come back to play this round later if you want.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={onSkipRound}>
-                                        Yes, Skip Round
-                                    </AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
                     </div>
                     )
                 ) : (

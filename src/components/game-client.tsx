@@ -54,7 +54,6 @@ const POINTS_DECREMENT_INTERVAL = 5000; // 5 seconds
 const POINTS_DECREMENT_AMOUNT = 10; // 10 points
 const LETTER_REVEAL_REWARD = 10;
 const INCORRECT_ANSWER_PENALTY = 20;
-const SKIP_ROUND_COST = 500;
 
 
 function AdminControls({ game, user }: { game: Game; user: any }) {
@@ -213,7 +212,7 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
   );
 }
 
-function SpectatorView({ game, user, isAdmin }: { game: Game; user: any; isAdmin: boolean }) {
+function SpectatorView({ game, user }: { game: Game; user: any; isAdmin: boolean }) {
     const winner = useMemo(() => {
         const activeGame = game;
         if (activeGame.status !== 'finished') return null;
@@ -249,6 +248,7 @@ function SpectatorView({ game, user, isAdmin }: { game: Game; user: any; isAdmin
   
   const team1Round = game.team1?.currentRoundIndex ?? 0;
   const team2Round = game.team2?.currentRoundIndex ?? 0;
+  const isAdmin = user?.uid === game.creatorId;
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
@@ -395,10 +395,11 @@ export default function GameClient({ gameId }: GameClientProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeRoundIndex, setActiveRoundIndex] = useState<number>(0);
 
-  const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
   const teamNameFromUrl = useMemo(() => searchParams.get('teamName'), [searchParams]);
   const isAdminView = useMemo(() => searchParams.get('admin') === 'true', [searchParams]);
   const isSpectator = !teamNameFromUrl && !isAdminView;
+
+  const [playerTeam, setPlayerTeam] = useState<'team1' | 'team2' | null>(null);
 
   useEffect(() => {
     if (game) {
@@ -639,8 +640,7 @@ export default function GameClient({ gameId }: GameClientProps) {
             if (!prevGame || !prevGame[playerTeam!]) return null;
             const newGame = JSON.parse(JSON.stringify(prevGame));
             newGame[playerTeam!]!.score = newScore;
-            // Reset points on incorrect answer
-            newGame.rounds[activeRoundIndex].currentPoints = 1000;
+            // The points timer will continue from its current state, no reset needed here
             return newGame;
         });
 
@@ -651,16 +651,8 @@ export default function GameClient({ gameId }: GameClientProps) {
         });
 
         runTransaction(firestore, async transaction => {
-            const gameSnap = await transaction.get(gameDocRef);
-            if (!gameSnap.exists()) throw new Error("Game disappeared");
-
-            const serverGame = gameSnap.data() as Game;
-            const serverRounds = serverGame.rounds;
-            serverRounds[activeRoundIndex].currentPoints = 1000; // Reset points on the server too
-
             transaction.update(gameDocRef, {
                 [`${playerTeam}.score`]: newScore,
-                rounds: serverRounds,
                 lastActivityAt: serverTimestamp(),
             });
         }).catch(e => {
@@ -673,119 +665,46 @@ export default function GameClient({ gameId }: GameClientProps) {
     [playerTeam, localGame, toast, firestore, gameDocRef, game, activeRoundIndex]
   );
   
-  const handleSkipRound = useCallback(async () => {
-    if (!playerTeam || !localGame || !firestore || !gameDocRef) return;
+  const handlePlayerFinish = useCallback(async () => {
+    if (!playerTeam || !localGame || !firestore || !gameDocRef || isSyncing) return;
+
     const teamData = localGame[playerTeam];
-    if (!teamData || teamData.score < SKIP_ROUND_COST) {
-        toast({variant: 'destructive', title: 'Not enough points!', description: `You need ${SKIP_ROUND_COST} points to skip a round.`});
-        return;
-    }
+    if (!teamData) return;
 
-    const newScore = teamData.score - SKIP_ROUND_COST;
-    const newCompletedRounds = teamData.completedRounds ? [...teamData.completedRounds, activeRoundIndex] : [activeRoundIndex];
-
-    let nextRoundToPlay = teamData.currentRoundIndex;
-    if (activeRoundIndex === teamData.currentRoundIndex) {
-        let nextIndex = activeRoundIndex + 1;
-        while(nextIndex < localGame.rounds.length && newCompletedRounds.includes(nextIndex)){
-            nextIndex++;
-        }
-        nextRoundToPlay = nextIndex;
-    }
-     if (nextRoundToPlay < localGame.rounds.length) {
-        setActiveRoundIndex(nextRoundToPlay);
-    }
+    setIsSyncing(true);
+    toast({ title: "You've finished your game!", description: 'Your score is locked in. Waiting for the other team...' });
     
-    setLocalGame(prevGame => {
-      if (!prevGame || !prevGame[playerTeam!]) return null;
-      const newGame = JSON.parse(JSON.stringify(prevGame));
-      const newTeamData = newGame[playerTeam!]!;
-      newTeamData.score = newScore;
-      newTeamData.completedRounds = newCompletedRounds;
-      newTeamData.roundsCompleted = newCompletedRounds.length;
-      newTeamData.currentRoundIndex = nextRoundToPlay;
-      return newGame;
-    });
-
-    toast({title: `Round ${activeRoundIndex + 1} Skipped`, description: `Your team paid ${SKIP_ROUND_COST} points.`});
-
-    runTransaction(firestore, async transaction => {
-        transaction.update(gameDocRef, {
-            [`${playerTeam}.score`]: newScore,
-            [`${playerTeam}.completedRounds`]: newCompletedRounds,
-            [`${playerTeam}.roundsCompleted`]: newCompletedRounds.length,
-             [`${playerTeam}.currentRoundIndex`]: nextRoundToPlay,
-            lastActivityAt: serverTimestamp(),
-        });
-    }).catch(e => {
-        console.error("Failed to sync skip round:", e);
-        toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save skip round action.'})
-        setLocalGame(game);
-    });
-
-  }, [playerTeam, localGame, activeRoundIndex, firestore, gameDocRef, game, toast]);
-
-  useEffect(() => {
-    if (!playerTeam || !localGame || !firestore || !gameDocRef) return;
-
-    const teamData = localGame[playerTeam];
-    const hasPlayerFinished = teamData && teamData.roundsCompleted >= localGame.rounds.length;
-
-    if (hasPlayerFinished && !isSyncing) {
-      setIsSyncing(true);
-      runTransaction(firestore, async (transaction) => {
+    runTransaction(firestore, async (transaction) => {
         const gameSnap = await transaction.get(gameDocRef);
         if (!gameSnap.exists()) throw new Error("Game not found during final sync");
 
         const serverGame = gameSnap.data() as Game;
-        
+
+        // Mark this team as finished by setting their completedRounds to the total number of rounds
+        const finalCompletedRounds = Array.from({ length: serverGame.rounds.length }, (_, i) => i);
+
         const finalUpdate: any = {
-          lastActivityAt: serverTimestamp(),
+            [`${playerTeam}.roundsCompleted`]: serverGame.rounds.length,
+            [`${playerTeam}.completedRounds`]: finalCompletedRounds,
+            lastActivityAt: serverTimestamp(),
         };
-        
+
         const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
         const otherTeamData = serverGame[otherTeamKey];
-        if (otherTeamData && otherTeamData.roundsCompleted >= localGame.rounds.length) {
-          finalUpdate.status = 'finished';
+        // If the other team has also finished, end the game
+        if (otherTeamData && otherTeamData.roundsCompleted >= serverGame.rounds.length) {
+            finalUpdate.status = 'finished';
         }
 
         transaction.update(gameDocRef, finalUpdate);
-      }).then(() => {
-        toast({ title: "Congratulations!", description: "Your team has finished all rounds." });
-      }).catch(e => {
+    }).catch(e => {
         console.error("Failed to sync final game state:", e);
-        toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save final game result. Please check your connection.'})
-      }).finally(() => {
+        toast({ variant: 'destructive', title: 'Sync Error', description: 'Could not save final game result. Please check your connection.' })
+    }).finally(() => {
         setIsSyncing(false);
-      });
-    }
-  }, [localGame, playerTeam, firestore, gameDocRef, isSyncing, toast]);
+    });
+}, [playerTeam, localGame, firestore, gameDocRef, isSyncing, toast]);
 
-  const handleForfeit = async () => {
-    if (!firestore || !playerTeam || !game) return;
-    setIsSyncing(true);
-    const gameDocRef = doc(firestore, 'games', game.id);
-    try {
-      await runTransaction(firestore, async (transaction) => {
-        transaction.update(gameDocRef, {
-          status: 'finished',
-          forfeitedBy: playerTeam,
-          winner: playerTeam === 'team1' ? 'team2' : 'team1',
-          lastActivityAt: serverTimestamp(),
-        });
-      });
-      toast({
-        variant: 'destructive',
-        title: 'You Forfeited',
-        description: 'Your team has forfeited the game.',
-      });
-    } catch (e) {
-      if (e instanceof Error)
-        toast({ variant: 'destructive', title: 'Error', description: e.message });
-    } finally {
-        setIsSyncing(false);
-    }
-  };
   
   // Use the live Firestore `game` for spectators, and `localGame` for players
   const activeGame = isSpectator || isAdminView ? game : localGame;
@@ -1041,28 +960,26 @@ export default function GameClient({ gameId }: GameClientProps) {
         playerTeamData={playerTeamData}
         onLetterReveal={handleLetterReveal}
         onMainAnswerSubmit={handleMainAnswerSubmit}
-        onSkipRound={handleSkipRound}
       />
       {playerTeam && (
           <div className='flex gap-4'>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" className="w-full" disabled={isSyncing}>
-                  <AlertTriangle className="mr-2 h-4 w-4" /> Forfeit Game
+                  <AlertTriangle className="mr-2 h-4 w-4" /> Finish Game
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                  <AlertDialogTitle>Are you sure you want to finish?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This action cannot be undone. You will lose the game
-                    immediately.
+                    This action will lock in your current score and end the game for your team. You won't be able to answer any more questions. The final result will be shown when the other team also finishes.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleForfeit}>
-                    Yes, Forfeit
+                  <AlertDialogAction onClick={handlePlayerFinish}>
+                    Yes, Finish My Game
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
