@@ -318,7 +318,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   const { data: game, isLoading, error } = useDoc<Game>(gameDocRef);
   
   const [isSyncing, setIsSyncing] = useState(false);
-  const [activeRoundIndex, setActiveRoundIndex] = useState<number>(0);
+  const [isPaused, setIsPaused] = useState(false);
   
   const teamNameFromUrl = useMemo(() => searchParams.get('teamName'), [searchParams]);
   const isAdminView = useMemo(() => searchParams.get('admin') === 'true', [searchParams]);
@@ -335,6 +335,17 @@ export default function GameClient({ gameId }: GameClientProps) {
     if (!game || !playerTeam) return null;
     return game[playerTeam];
   }, [game, playerTeam]);
+
+  // Player's active round is local state to allow navigation
+  // It defaults to the server-side current round index
+  const [activeRoundIndex, setActiveRoundIndex] = useState(playerTeamData?.currentRoundIndex || 0);
+
+  // Sync active round index with server state only when the playerTeamData first loads
+  useEffect(() => {
+    if (playerTeamData) {
+      setActiveRoundIndex(playerTeamData.currentRoundIndex);
+    }
+  }, [playerTeamData?.currentRoundIndex]);
 
   // Effect for joining the game.
   useEffect(() => {
@@ -403,12 +414,14 @@ export default function GameClient({ gameId }: GameClientProps) {
     }
   }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam, isAdminView]);
   
-  // Effect to set the initial active round for a player
+  // Effect to manage the paused state locally based on live game data
   useEffect(() => {
-    if (playerTeamData) {
-        setActiveRoundIndex(playerTeamData.currentRoundIndex);
+    if (game?.status === 'paused') {
+      setIsPaused(true);
+    } else {
+      setIsPaused(false);
     }
-  }, [playerTeamData]);
+  }, [game?.status]);
 
 
   // Effect for the points countdown timer.
@@ -641,11 +654,11 @@ export default function GameClient({ gameId }: GameClientProps) {
     const team1 = game.team1;
     const team2 = game.team2;
 
-    if (!team1 || !team2) return null;
-
     if (game.forfeitedBy) {
         return game.forfeitedBy === 'team1' ? 'team2' : 'team1';
     }
+
+    if (!team1 || !team2) return null;
 
     if (team1.score > team2.score) return 'team1';
     if (team2.score > team1.score) return 'team2';
@@ -789,7 +802,7 @@ export default function GameClient({ gameId }: GameClientProps) {
     );
   }
   
-  if (game.status === 'paused') {
+  if (isPaused) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-6">
         <div className="flex flex-col items-center gap-4 text-lg text-center">

@@ -97,9 +97,9 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
 
     if (!mainAnswer) {
         return (
-            <Card>
+            <Card className="bg-muted/30">
                 <CardHeader>
-                    <CardTitle>Letter-Reveal Questions</CardTitle>
+                    <CardTitle className="text-lg">Letter-Reveal Questions</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <p className="text-muted-foreground">Please enter a Main Answer above to generate fields for letter-reveal questions.</p>
@@ -109,19 +109,19 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
     }
 
     return (
-        <Card>
+        <Card className="bg-muted/30">
             <CardHeader>
-                <CardTitle>Letter-Reveal Questions</CardTitle>
+                <CardTitle className="text-lg">Letter-Reveal Questions</CardTitle>
                 <FormDescription>
                     Provide one question for each letter in your main answer. (Optional)
                 </FormDescription>
             </CardHeader>
-            <CardContent className='space-y-6'>
+            <CardContent className='space-y-4'>
                 {fields.map((field, index) => (
-                    <div key={field.id} className="relative p-4 border rounded-md">
-                        {index > 0 && <Separator className='absolute -top-3 left-0 w-full' />}
-                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                           Question for letter: <span className='font-mono text-2xl text-primary bg-primary/10 px-2 rounded-md'>{normalizeApostrophes(mainAnswer).replace(/\s/g, '')[index]?.toUpperCase()}</span>
+                    <div key={field.id} className="relative p-4 border rounded-lg bg-background">
+                        
+                        <h3 className="text-base font-semibold mb-4 flex items-center gap-2">
+                           Question for letter: <span className='font-mono text-xl text-primary bg-primary/10 px-2 rounded-md'>{normalizeApostrophes(mainAnswer).replace(/\s/g, '')[index]?.toUpperCase()}</span>
                         </h3>
                          <Controller
                             control={control}
@@ -135,9 +135,9 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                                 name={`rounds.${roundIndex}.letterQuestions.${index}.question`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Question</FormLabel>
+                                        <FormLabel className="text-xs">Question</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Question that reveals '${normalizeApostrophes(mainAnswer).replace(/\s/g, '')[index]?.toUpperCase()}'`} {...field} />
+                                            <Input placeholder={`Question for '${normalizeApostrophes(mainAnswer).replace(/\s/g, '')[index]?.toUpperCase()}'`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -148,9 +148,9 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
                                 name={`rounds.${roundIndex}.letterQuestions.${index}.answer`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Answer</FormLabel>
+                                        <FormLabel className="text-xs">Answer</FormLabel>
                                         <FormControl>
-                                            <Input placeholder={`Answer to the question`} {...field} />
+                                            <Input placeholder={`Answer`} {...field} />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -387,17 +387,17 @@ export default function CreateGameForm() {
 
     if (isPageLoading) {
         return (
-            <div className="flex-1 p-4 sm:p-6 md:p-8">
-                 <div className="container mx-auto max-w-3xl">
-                     <Skeleton className="w-full h-screen rounded-lg bg-muted animate-pulse" />
+            <div className="flex-1 p-4 sm:p-6 md:p-8 bg-muted/20">
+                 <div className="container mx-auto max-w-4xl">
+                     <Skeleton className="w-full h-screen rounded-lg bg-card animate-pulse" />
                  </div>
              </div>
         );
     }
 
     return (
-        <div className="flex-1 p-4 sm:p-6 md:p-8">
-            <div className="container mx-auto max-w-3xl">
+        <div className="flex-1 p-4 sm:p-6 md:p-8 bg-muted/20">
+            <div className="container mx-auto max-w-4xl">
                 <div className="flex items-center justify-between mb-6">
                     <Button variant="outline" size="sm" asChild>
                         <Link href="/admin">
@@ -410,78 +410,83 @@ export default function CreateGameForm() {
                 </div>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                        <Card>
+                            <CardContent className="p-6 space-y-6">
+                                <FormField
+                                    control={form.control}
+                                    name="title"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-base">Game Title</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="e.g., History of Ancient Rome" {...field} />
+                                            </FormControl>
+                                            <FormDescription>A catchy title for your game.</FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </CardContent>
+                        </Card>
 
-                         <FormField
-                            control={form.control}
-                            name="title"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Game Title</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="e.g., History of Ancient Rome" {...field} />
-                                    </FormControl>
-                                    <FormDescription>A catchy title for your game.</FormDescription>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-
-                        <Accordion type="multiple" defaultValue={['item-0']} className="w-full">
+                        <Accordion type="multiple" defaultValue={['item-0']} className="w-full space-y-4">
                             {fields.map((field, index) => (
-                                <AccordionItem value={`item-${index}`} key={field.id}>
-                                    <div className="flex items-center w-full">
-                                        <AccordionTrigger className="flex-1">
-                                            <span className='font-bold text-lg'>Round {index + 1}</span>
-                                        </AccordionTrigger>
-                                        {fields.length > 1 && (
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="ml-2 text-destructive hover:bg-destructive/10"
-                                                onClick={() => remove(index)}
-                                            >
-                                                <Trash className="h-4 w-4" />
-                                            </Button>
-                                        )}
-                                    </div>
-                                    <AccordionContent className="space-y-6 pt-4">
-                                        <FormField
-                                            control={form.control}
-                                            name={`rounds.${index}.mainQuestion`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Main Question</FormLabel>
-                                                    <FormControl>
-                                                        <Textarea placeholder="e.g., What is the capital of France?" {...field} />
-                                                    </FormControl>
-                                                    <FormDescription>This is the main riddle for this round.</FormDescription>
-                                                    <FormMessage />
-                                                </FormItem>
+                                <AccordionItem value={`item-${index}`} key={field.id} className="border-b-0">
+                                    <Card className="overflow-hidden">
+                                        <div className="flex items-center w-full bg-card px-2">
+                                            <AccordionTrigger className="flex-1 px-4 py-4 text-left">
+                                                <span className='font-bold text-lg'>Round {index + 1}</span>
+                                            </AccordionTrigger>
+                                            {fields.length > 1 && (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="ml-2 text-destructive hover:bg-destructive/10"
+                                                    onClick={() => remove(index)}
+                                                >
+                                                    <Trash className="h-4 w-4" />
+                                                </Button>
                                             )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name={`rounds.${index}.mainAnswer`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Main Answer</FormLabel>
-                                                    <FormControl>
-                                                        <Input
-                                                            placeholder="e.g., PARIS"
-                                                            {...field}
-                                                            onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                                                            autoCapitalize="characters"
-                                                            autoComplete="off"
-                                                        />
-                                                    </FormControl>
-                                                    <FormDescription>The answer to the main question. Use only uppercase letters and spaces.</FormDescription>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <LetterFields roundIndex={index} control={form.control} form={form} />
-                                    </AccordionContent>
+                                        </div>
+                                        <AccordionContent className="space-y-6 p-6 border-t bg-card">
+                                            <FormField
+                                                control={form.control}
+                                                name={`rounds.${index}.mainQuestion`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-base">Main Question</FormLabel>
+                                                        <FormControl>
+                                                            <Textarea placeholder="e.g., What is the capital of France?" {...field} rows={3}/>
+                                                        </FormControl>
+                                                        <FormDescription>This is the main riddle for this round.</FormDescription>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`rounds.${index}.mainAnswer`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-base">Main Answer</FormLabel>
+                                                        <FormControl>
+                                                            <Input
+                                                                placeholder="e.g., PARIS"
+                                                                {...field}
+                                                                onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                                                                autoCapitalize="characters"
+                                                                autoComplete="off"
+                                                            />
+                                                        </FormControl>
+                                                        <FormDescription>The answer to the main question. Use only uppercase letters and spaces.</FormDescription>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <LetterFields roundIndex={index} control={form.control} form={form} />
+                                        </AccordionContent>
+                                    </Card>
                                 </AccordionItem>
                             ))}
                         </Accordion>
@@ -496,31 +501,33 @@ export default function CreateGameForm() {
 
                         <Separator />
                         
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                onClick={() => fileInputRef.current?.click()}
-                                className='w-full'
-                            >
-                                <Upload className="mr-2 h-4 w-4" /> Import from JSON
-                            </Button>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                onChange={handleFileChange}
-                                className="hidden"
-                                accept="application/json"
-                            />
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                onClick={handleExport}
-                                className='w-full'
-                            >
-                            <Download className="mr-2 h-4 w-4" /> Export to JSON
-                            </Button>
-                        </div>
+                        <Card>
+                            <CardContent className="p-6 flex flex-col sm:flex-row gap-4">
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className='w-full'
+                                >
+                                    <Upload className="mr-2 h-4 w-4" /> Import from JSON
+                                </Button>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleFileChange}
+                                    className="hidden"
+                                    accept="application/json"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    onClick={handleExport}
+                                    className='w-full'
+                                >
+                                <Download className="mr-2 h-4 w-4" /> Export to JSON
+                                </Button>
+                            </CardContent>
+                        </Card>
 
 
                         <Button type="submit" className="w-full" size="lg" disabled={isSubmitting || !user}>

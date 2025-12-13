@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 function generateGameCode(length: number): string {
   let result = '';
@@ -61,6 +62,7 @@ export default function GamesListPage() {
   const { user } = useUser();
   const { toast } = useToast();
   const router = useRouter();
+  const [rehostingGameId, setRehostingGameId] = useState<string | null>(null);
 
   const gamesQuery = useMemoFirebase(
     () =>
@@ -138,6 +140,7 @@ export default function GamesListPage() {
         toast({variant: 'destructive', title: 'Error', description: 'You must be signed in to re-host a game.'});
         return;
     }
+    setRehostingGameId(gameToClone.id);
 
     const newGameId = generateGameCode(4);
 
@@ -173,6 +176,8 @@ export default function GamesListPage() {
           description: e.message,
         });
       }
+    } finally {
+        setRehostingGameId(null);
     }
   }
 
@@ -236,9 +241,9 @@ export default function GamesListPage() {
                   {game.lastActivityAt?.toDate().toLocaleString()}
                 </TableCell>
                 <TableCell className="text-right space-x-2">
-                  <Button variant="outline" size="sm" onClick={() => handleRehost(game)}>
-                    <Copy className="mr-2 h-4 w-4" />
-                    Re-host
+                  <Button variant="outline" size="sm" onClick={() => handleRehost(game)} disabled={rehostingGameId === game.id}>
+                    {rehostingGameId === game.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
+                    {rehostingGameId === game.id ? 'Re-hosting...' : 'Re-host'}
                   </Button>
                   
                   {game.status === 'finished' && (
