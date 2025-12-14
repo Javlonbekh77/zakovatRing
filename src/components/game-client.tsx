@@ -21,6 +21,7 @@ import {
   Frown,
   Home,
   AlertTriangle,
+  MessageSquarePlus,
 } from 'lucide-react';
 import Scoreboard from './scoreboard';
 import GameArea from './game-area';
@@ -29,7 +30,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Badge } from './ui/badge';
 import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
-import { doc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, updateDoc, collection, addDoc } from 'firebase/firestore';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +45,9 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { normalizeApostrophes } from '@/lib/utils';
 import RoundNavigator from './round-navigator';
-
+import { Dialog, DialogClose, DialogHeader, DialogTitle, DialogContent, DialogDescription } from './ui/dialog';
+import { Textarea } from './ui/textarea';
+import { Label } from './ui/label';
 
 const POINTS_DECREMENT_INTERVAL = 5000;
 const POINTS_DECREMENT_AMOUNT = 10;
@@ -300,6 +303,94 @@ function SpectatorView({ game }: { game: Game; }) {
   );
 }
 
+function FeedbackDialog({
+  gameId,
+  teamName,
+  isOpen,
+  onOpenChange,
+}: {
+  gameId: string;
+  teamName: string;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const firestore = useFirestore();
+  const { toast } = useToast();
+  const [feedback, setFeedback] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!firestore || !feedback.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Feedback cannot be empty.',
+      });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(firestore, 'feedback'), {
+        gameId,
+        teamName,
+        feedback,
+        createdAt: serverTimestamp(),
+      });
+      toast({
+        title: 'Feedback submitted!',
+        description: 'Thank you for your thoughts.',
+      });
+      onOpenChange(false);
+      setFeedback('');
+    } catch (e) {
+      if (e instanceof Error) {
+        toast({
+          variant: 'destructive',
+          title: 'Error submitting feedback',
+          description: e.message,
+        });
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Leave Feedback for Game {gameId}</DialogTitle>
+          <DialogDescription>
+            Share your thoughts, suggestions, or any issues you encountered.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4 space-y-2">
+          <Label htmlFor="feedback-textarea">Your Feedback</Label>
+          <Textarea
+            id="feedback-textarea"
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="This game was great, but..."
+            rows={5}
+            disabled={isSubmitting}
+          />
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={isSubmitting}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Submit
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
 interface GameClientProps {
   gameId: string;
 }
@@ -318,6 +409,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   
   const teamNameFromUrl = useMemo(() => searchParams.get('teamName'), [searchParams]);
   const isAdminView = useMemo(() => searchParams.get('admin') === 'true', [searchParams]);
@@ -713,6 +805,7 @@ export default function GameClient({ gameId }: GameClientProps) {
     const isDraw = winnerTeamKey === 'draw';
 
     return (
+      <>
       <Card className="w-full max-w-lg text-center p-8 shadow-2xl animate-in fade-in zoom-in-95 m-auto">
         {isSyncing && (
             <div className='absolute top-4 right-4 text-muted-foreground'>
@@ -747,12 +840,28 @@ export default function GameClient({ gameId }: GameClientProps) {
             )}
           </div>
         </CardContent>
-        <CardFooter>
-          <Button asChild className="w-full">
+        <CardFooter className="flex-col gap-4">
+          <Button
+            className="w-full"
+            onClick={() => setIsFeedbackModalOpen(true)}
+          >
+            <MessageSquarePlus className="mr-2 h-4 w-4" />
+            Leave Feedback
+          </Button>
+          <Button asChild className="w-full" variant="outline">
             <Link href="/">Bosh Sahifa</Link>
           </Button>
         </CardFooter>
       </Card>
+      {playerTeamData && (
+        <FeedbackDialog 
+          gameId={game.id}
+          teamName={playerTeamData.name}
+          isOpen={isFeedbackModalOpen}
+          onOpenChange={setIsFeedbackModalOpen}
+        />
+      )}
+      </>
     );
   }
 
