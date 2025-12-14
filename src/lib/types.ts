@@ -32,7 +32,8 @@ export type GameStatus = 'lobby' | 'in_progress' | 'paused' | 'finished';
 export interface Game {
   id: string;
   title?: string; 
-  creatorId: string;
+  creatorId: string; // Remains anonymous user UID for now
+  password?: string; // New field for game password
   rounds: Round[];
   currentRoundIndex: number; // "master" or spectator round index
   status: GameStatus;

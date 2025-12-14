@@ -93,7 +93,7 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Question to reveal "{letter.toUpperCase()}"</DialogTitle>
+          <DialogTitle>Savol</DialogTitle>
           <DialogDescription className="text-lg pt-2">
             {letterQuestion.question}
           </DialogDescription>

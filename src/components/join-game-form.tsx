@@ -31,6 +31,7 @@ const formSchema = z.object({
     .string()
     .min(2, 'Team name must be at least 2 characters.')
     .max(20, 'Team name cannot exceed 20 characters.'),
+  password: z.string().min(1, 'Password is required.'),
 });
 
 export default function JoinGameForm() {
@@ -45,6 +46,7 @@ export default function JoinGameForm() {
     defaultValues: {
       gameCode: '',
       teamName: '',
+      password: '',
     },
   });
 
@@ -73,6 +75,16 @@ export default function JoinGameForm() {
       
       const gameData = gameSnap.data() as Game;
 
+      if (gameData.password !== values.password) {
+        toast({
+          variant: 'destructive',
+          title: 'Incorrect Password',
+          description: 'The password for this game is incorrect.',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
       if (gameData.status !== 'lobby') {
         if (
           gameData.team1?.name !== values.teamName &&
@@ -81,11 +93,26 @@ export default function JoinGameForm() {
             toast({
                 variant: 'destructive',
                 title: 'Game in Progress',
-                description: 'This game has already started and cannot be joined.',
+                description: 'This game has already started. You can only rejoin with your original team name.',
             });
             setIsSubmitting(false);
             return;
         }
+      }
+
+      // Check if the game is full
+      const isTeam1SlotTaken = !!gameData.team1;
+      const isTeam2SlotTaken = !!gameData.team2;
+      const isRejoining = gameData.team1?.name === values.teamName || gameData.team2?.name === values.teamName;
+
+      if (isTeam1SlotTaken && isTeam2SlotTaken && !isRejoining) {
+        toast({
+            variant: 'destructive',
+            title: 'Game is Full',
+            description: 'This game already has two teams.',
+        });
+        setIsSubmitting(false);
+        return;
       }
 
 
@@ -149,6 +176,19 @@ export default function JoinGameForm() {
               <FormLabel>Team Name</FormLabel>
               <FormControl>
                 <Input placeholder="e.g., The Masterminds" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+         <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Game Password</FormLabel>
+              <FormControl>
+                <Input type="password" placeholder="••••••••" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>

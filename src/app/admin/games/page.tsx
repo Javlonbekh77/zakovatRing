@@ -31,6 +31,7 @@ import {
   ArrowLeft,
   RefreshCw,
   Copy,
+  EyeOff,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -63,16 +64,21 @@ export default function GamesListPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [rehostingGameId, setRehostingGameId] = useState<string | null>(null);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
   const gamesQuery = useMemoFirebase(
     () =>
       firestore
-        ? query(collection(firestore, 'games'), orderBy('lastActivityAt', 'desc'))
+        ? query(collection(firestore, 'games'), orderBy('createdAt', 'desc'))
         : null,
     [firestore]
   );
 
   const { data: games, isLoading, error } = useCollection<Game>(gamesQuery);
+
+  const togglePasswordVisibility = (gameId: string) => {
+    setVisiblePasswords(prev => ({ ...prev, [gameId]: !prev[gameId] }));
+  };
 
   const handleDelete = async (gameId: string) => {
     if (!firestore || !user) {
@@ -155,6 +161,7 @@ export default function GamesListPage() {
         const newGameData: Game = {
           id: newGameId,
           title: gameToClone.title,
+          password: gameToClone.password, // Clone the password as well
           creatorId: user.uid,
           rounds: newRounds,
           currentRoundIndex: 0,
@@ -214,10 +221,9 @@ export default function GamesListPage() {
             <TableRow>
               <TableHead>Game Title</TableHead>
               <TableHead>Game ID</TableHead>
+              <TableHead>Password</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Team 1</TableHead>
-              <TableHead>Team 2</TableHead>
-              <TableHead>Last Activity</TableHead>
+              <TableHead>Teams</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -226,42 +232,41 @@ export default function GamesListPage() {
               <TableRow key={game.id}>
                 <TableCell className="font-semibold">{game.title || 'Unknown Game'}</TableCell>
                 <TableCell className="font-mono font-bold">{game.id}</TableCell>
+                 <TableCell>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono">{visiblePasswords[game.id] ? game.password : '••••'}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePasswordVisibility(game.id)}>
+                      {visiblePasswords[game.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </TableCell>
                 <TableCell>
                   <Badge variant={game.status === 'in_progress' ? 'default' : 'secondary'}>
                     {game.status}
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  {game.team1?.name || '-'} ({game.team1?.score || 0} pts)
+                  <p>{game.team1?.name || '-'}</p>
+                  <p>{game.team2?.name || '-'}</p>
                 </TableCell>
-                <TableCell>
-                  {game.team2?.name || '-'} ({game.team2?.score || 0} pts)
-                </TableCell>
-                <TableCell>
-                  {game.lastActivityAt?.toDate().toLocaleString()}
-                </TableCell>
-                <TableCell className="text-right space-x-2">
+                <TableCell className="text-right space-x-1">
                   <Button variant="outline" size="sm" onClick={() => handleRehost(game)} disabled={rehostingGameId === game.id}>
                     {rehostingGameId === game.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
-                    {rehostingGameId === game.id ? 'Re-hosting...' : 'Re-host'}
                   </Button>
                   
                   {game.status === 'finished' && (
                     <Button variant="outline" size="sm" onClick={() => handleReset(game)}>
                       <RefreshCw className="mr-2 h-4 w-4" />
-                      Reset
                     </Button>
                   )}
                   <Button variant="outline" size="sm" asChild>
                     <Link href={`/spectate/${game.id}?admin=true`}>
                       <Eye className="mr-2 h-4 w-4" />
-                      Manage
                     </Link>
                   </Button>
                   <Button variant="outline" size="sm" asChild>
                     <Link href={`/admin/edit/${game.id}`}>
                       <Edit className="mr-2 h-4 w-4" />
-                      Edit
                     </Link>
                   </Button>
                   <AlertDialog>

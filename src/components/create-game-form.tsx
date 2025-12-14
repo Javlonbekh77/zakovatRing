@@ -20,10 +20,10 @@ import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Game, Round, GameStatus, FormLetterQuestion } from '@/lib/types';
+import { Game, Round, FormLetterQuestion } from '@/lib/types';
 import { useRouter, useParams } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { serverTimestamp, doc, setDoc, getDoc } from 'firebase/firestore';
+import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
 import { useFirestore, useUser, useMemoFirebase, useDoc } from '@/firebase';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
@@ -49,6 +49,7 @@ const roundSchema = z.object({
 
 const formSchema = z.object({
   title: z.string().min(3, 'Game title must be at least 3 characters.'),
+  password: z.string().min(4, 'Password must be at least 4 characters.'), // New password field
   rounds: z.array(roundSchema).min(1, 'At least one round is required.'),
 });
 
@@ -184,6 +185,7 @@ export default function CreateGameForm() {
         resolver: zodResolver(formSchema),
         defaultValues: {
             title: '',
+            password: '',
             rounds: [{ mainQuestion: '', mainAnswer: '', letterQuestions: [] }],
         },
     });
@@ -218,7 +220,7 @@ export default function CreateGameForm() {
                     letterQuestions: letterQuestions,
                 };
             });
-            form.reset({ title: existingGame.title || '', rounds: formRounds });
+            form.reset({ title: existingGame.title || '', password: existingGame.password || '', rounds: formRounds });
         }
     }, [existingGame, isGameLoading, isUserLoading, form]);
 
@@ -240,7 +242,7 @@ export default function CreateGameForm() {
             }
 
             const values = form.getValues();
-            const dataStr = JSON.stringify({ title: values.title, rounds: values.rounds }, null, 2);
+            const dataStr = JSON.stringify({ title: values.title, password: values.password, rounds: values.rounds }, null, 2);
             const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
             const exportFileDefaultName = `timeline_game_${gameId}.json`;
 
@@ -280,6 +282,7 @@ export default function CreateGameForm() {
                 
                 const dataToValidate = {
                     title: jsonData.title || jsonData.gameTitle || 'Imported Game',
+                    password: jsonData.password || '',
                     rounds: roundsData
                 };
 
@@ -349,6 +352,7 @@ export default function CreateGameForm() {
             const gameData: Game = {
                 id: finalGameId,
                 title: values.title,
+                password: values.password,
                 creatorId: user.uid,
                 rounds: gameRounds,
                 currentRoundIndex: 0,
@@ -411,7 +415,7 @@ export default function CreateGameForm() {
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
                         <Card>
-                            <CardContent className="p-6 space-y-6">
+                            <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <FormField
                                     control={form.control}
                                     name="title"
@@ -422,6 +426,20 @@ export default function CreateGameForm() {
                                                 <Input placeholder="e.g., History of Ancient Rome" {...field} />
                                             </FormControl>
                                             <FormDescription>A catchy title for your game.</FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                 <FormField
+                                    control={form.control}
+                                    name="password"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-base">Game Password</FormLabel>
+                                            <FormControl>
+                                                <Input type="password" placeholder="e.g., secret123" {...field} />
+                                            </FormControl>
+                                            <FormDescription>A password for players to join this game.</FormDescription>
                                             <FormMessage />
                                         </FormItem>
                                     )}
