@@ -11,6 +11,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  where,
 } from 'firebase/firestore';
 import {
   Table,
@@ -33,6 +34,7 @@ import {
   Copy,
   EyeOff,
   Lock,
+  LogIn,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -49,7 +51,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 function generateGameCode(length: number): string {
   let result = '';
@@ -62,7 +64,7 @@ function generateGameCode(length: number): string {
 
 export default function GamesListPage() {
   const firestore = useFirestore();
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const { toast } = useToast();
   const router = useRouter();
   const [rehostingGameId, setRehostingGameId] = useState<string | null>(null);
@@ -75,21 +77,41 @@ export default function GamesListPage() {
 
   const gamesQuery = useMemoFirebase(
     () =>
-      firestore
-        ? query(collection(firestore, 'games'), orderBy('createdAt', 'desc'))
+      firestore && user
+        ? query(collection(firestore, 'games'), where('creatorId', '==', user.uid), orderBy('createdAt', 'desc'))
         : null,
-    [firestore]
+    [firestore, user]
   );
-
+  
   const { data: games, isLoading, error } = useCollection<Game>(gamesQuery);
 
-  const togglePasswordVisibility = (gameId: string) => {
-    setVisiblePasswords(prev => ({ ...prev, [gameId]: !prev[gameId] }));
-  };
+  const performAction = () => {
+    if (!selectedGame || !currentAction) return;
+
+    switch(currentAction) {
+        case 'delete':
+            handleDelete(selectedGame.id);
+            break;
+        case 'rehost':
+            handleRehost(selectedGame);
+            break;
+        case 'edit':
+            router.push(`/admin/edit/${selectedGame.id}`);
+            break;
+    }
+  }
 
   const handleActionClick = (game: Game, action: 'edit' | 'delete' | 'rehost') => {
       setSelectedGame(game);
       setCurrentAction(action);
+
+      // If game has no password, perform action immediately.
+      if (!game.password) {
+        performAction();
+        return;
+      }
+
+      // Otherwise, open the password confirmation dialog.
       setIsActionModalOpen(true);
       setPasswordInput('');
   }
@@ -108,18 +130,7 @@ export default function GamesListPage() {
     
     // Close modal before performing action
     setIsActionModalOpen(false);
-
-    switch(currentAction) {
-        case 'delete':
-            handleDelete(selectedGame.id);
-            break;
-        case 'rehost':
-            handleRehost(selectedGame);
-            break;
-        case 'edit':
-            router.push(`/admin/edit/${selectedGame.id}`);
-            break;
-    }
+    performAction();
   };
 
 
@@ -231,6 +242,10 @@ export default function GamesListPage() {
     }
   }
   
+  const togglePasswordVisibility = (gameId: string) => {
+    setVisiblePasswords(prev => ({ ...prev, [gameId]: !prev[gameId] }));
+  };
+
   const getActionTitle = useCallback(() => {
     switch (currentAction) {
         case 'delete': return 'Confirm Deletion';
@@ -263,23 +278,42 @@ export default function GamesListPage() {
         <h1 className="text-3xl font-headline font-bold">Hosted Games</h1>
         <div></div>
       </div>
+      
+      {isUserLoading && (
+        <div className="flex justify-center items-center gap-2 mt-8">
+          <Loader2 className="h-8 w-8 animate-spin" /> Authenticating...
+        </div>
+      )}
 
-      {isLoading && (
+      {!isUserLoading && !user && (
+         <div className="text-center mt-8 space-y-4">
+          <p className="text-lg">You must be logged in to view your hosted games.</p>
+           <Button asChild>
+             <Link href="/join">
+                <LogIn className="mr-2 h-4 w-4"/>
+                Login or Sign Up
+             </Link>
+           </Button>
+        </div>
+      )}
+
+      {user && isLoading && (
         <div className="flex justify-center items-center gap-2 mt-8">
           <Loader2 className="h-8 w-8 animate-spin" /> Loading games...
         </div>
       )}
-      {error && (
+      
+      {user && error && (
         <div className="text-destructive text-center mt-8">
           Error loading games: {error.message}
         </div>
       )}
 
-      {!isLoading && games && (
+      {user && !isLoading && games && (
         <>
         <Table>
           <TableCaption>
-            A list of all hosted (active or finished) games.
+            A list of all games you have hosted.
           </TableCaption>
           <TableHeader>
             <TableRow>
@@ -297,12 +331,16 @@ export default function GamesListPage() {
                 <TableCell className="font-semibold">{game.title || 'Unknown Game'}</TableCell>
                 <TableCell className="font-mono font-bold">{game.id}</TableCell>
                  <TableCell>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono">{visiblePasswords[game.id] ? game.password : '••••'}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePasswordVisibility(game.id)}>
-                      {visiblePasswords[game.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
-                  </div>
+                  {game.password ? (
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono">{visiblePasswords[game.id] ? game.password : '••••'}</span>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => togglePasswordVisibility(game.id)}>
+                        {visiblePasswords[game.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className='text-muted-foreground italic'>None</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Badge variant={game.status === 'in_progress' ? 'default' : 'secondary'}>
@@ -314,25 +352,26 @@ export default function GamesListPage() {
                   <p>{game.team2?.name || '-'}</p>
                 </TableCell>
                 <TableCell className="text-right space-x-1">
-                  <Button variant="outline" size="icon" onClick={() => handleActionClick(game, 'rehost')} disabled={rehostingGameId === game.id}>
+                   <Button variant="outline" size="sm" onClick={() => handleActionClick(game, 'rehost')} disabled={rehostingGameId === game.id}>
                     {rehostingGameId === game.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                    Re-host
                   </Button>
                   
                   {game.status === 'finished' && (
-                    <Button variant="outline" size="icon" onClick={() => handleReset(game)}>
-                      <RefreshCw className="h-4 w-4" />
+                    <Button variant="outline" size="sm" onClick={() => handleReset(game)}>
+                      <RefreshCw className="h-4 w-4" /> Reset
                     </Button>
                   )}
-                  <Button variant="outline" size="icon" asChild>
+                  <Button variant="outline" size="sm" asChild>
                     <Link href={`/spectate/${game.id}?admin=true`}>
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-4 w-4" /> Spectate
                     </Link>
                   </Button>
-                  <Button variant="outline" size="icon" onClick={() => handleActionClick(game, 'edit')}>
-                      <Edit className="h-4 w-4" />
+                  <Button variant="outline" size="sm" onClick={() => handleActionClick(game, 'edit')}>
+                      <Edit className="h-4 w-4" /> Edit
                   </Button>
-                  <Button variant="destructive" size="icon" onClick={() => handleActionClick(game, 'delete')}>
-                        <Trash className="h-4 w-4" />
+                  <Button variant="destructive" size="sm" onClick={() => handleActionClick(game, 'delete')}>
+                        <Trash className="h-4 w-4" /> Delete
                   </Button>
                 </TableCell>
               </TableRow>

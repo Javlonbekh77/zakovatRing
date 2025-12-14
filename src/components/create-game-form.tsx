@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Loader2, Plus, Trash, Download, Upload, Save, ArrowLeft } from 'lucide-react';
+import { Loader2, Plus, Trash, Download, Upload, Save, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -168,6 +168,7 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
 export default function CreateGameForm() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isPageLoading, setIsPageLoading] = useState(true);
+    const [isPasswordVisible, setIsPasswordVisible] = useState(false);
     const { toast } = useToast();
     const router = useRouter();
     const params = useParams();
@@ -447,9 +448,20 @@ export default function CreateGameForm() {
                                     render={({ field }) => (
                                         <FormItem>
                                             <FormLabel className="text-base">Game Password</FormLabel>
-                                            <FormControl>
-                                                <Input type="password" placeholder="••••••••" {...field} />
-                                            </FormControl>
+                                            <div className="relative">
+                                                <FormControl>
+                                                    <Input type={isPasswordVisible ? 'text' : 'password'} placeholder="••••••••" {...field} />
+                                                </FormControl>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
+                                                    onClick={() => setIsPasswordVisible(prev => !prev)}
+                                                >
+                                                    {isPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                </Button>
+                                            </div>
                                             <FormDescription>A password for game participants.</FormDescription>
                                             <FormMessage />
                                         </FormItem>

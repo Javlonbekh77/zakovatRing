@@ -53,7 +53,7 @@ function LetterDialog({ letter, letterKey, game, currentRound, playerTeam, onLet
     setIsSubmitting(true);
     
     try {
-        const isCorrect = normalizeApostrophes(letterQuestion.answer) === normalizeApostrophes(values.answer);
+        const isCorrect = normalizeApostrophes(values.answer) === normalizeApostrophes(letterQuestion.answer);
 
         if (isCorrect) {
             await onLetterReveal(letterKey);
