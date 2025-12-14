@@ -19,7 +19,6 @@ import { useToast } from '@/hooks/use-toast';
 import { doc, getDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import { useRouter } from 'next/navigation';
-import { Skeleton } from './ui/skeleton';
 import type { Game } from '@/lib/types';
 
 const formSchema = z.object({
@@ -31,7 +30,6 @@ const formSchema = z.object({
     .string()
     .min(2, 'Team name must be at least 2 characters.')
     .max(20, 'Team name cannot exceed 20 characters.'),
-  password: z.string().min(1, 'Password is required.'),
 });
 
 export default function JoinGameForm() {
@@ -45,7 +43,6 @@ export default function JoinGameForm() {
     defaultValues: {
       gameCode: '',
       teamName: '',
-      password: '',
     },
   });
 
@@ -73,16 +70,6 @@ export default function JoinGameForm() {
       }
       
       const gameData = gameSnap.data() as Game;
-
-      if (gameData.password !== values.password) {
-        toast({
-          variant: 'destructive',
-          title: 'Incorrect Password',
-          description: 'The password for this game is incorrect.',
-        });
-        setIsSubmitting(false);
-        return;
-      }
 
       if (gameData.status !== 'lobby') {
         if (
@@ -159,19 +146,6 @@ export default function JoinGameForm() {
               <FormLabel>Team Name</FormLabel>
               <FormControl>
                 <Input placeholder="e.g., The Masterminds" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-         <FormField
-          control={form.control}
-          name="password"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Game Password</FormLabel>
-              <FormControl>
-                <Input type="password" placeholder="••••••••" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>

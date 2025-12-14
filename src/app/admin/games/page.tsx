@@ -31,24 +31,22 @@ import {
   ArrowLeft,
   RefreshCw,
   Copy,
-  Lock,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogClose,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 
 function generateGameCode(length: number): string {
   let result = '';
@@ -65,10 +63,6 @@ export default function GamesListPage() {
   const router = useRouter();
   const [rehostingGameId, setRehostingGameId] = useState<string | null>(null);
 
-  const [isActionModalOpen, setIsActionModalOpen] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
-  const [currentAction, setCurrentAction] = useState<'edit' | 'delete' | 'rehost' | null>(null);
 
   const gamesQuery = useMemoFirebase(
     () =>
@@ -79,52 +73,6 @@ export default function GamesListPage() {
   );
   
   const { data: games, isLoading, error } = useCollection<Game>(gamesQuery);
-
-  const performAction = () => {
-    if (!selectedGame || !currentAction) return;
-
-    switch(currentAction) {
-        case 'delete':
-            handleDelete(selectedGame.id);
-            break;
-        case 'rehost':
-            handleRehost(selectedGame);
-            break;
-        case 'edit':
-            router.push(`/admin/edit/${selectedGame.id}`);
-            break;
-    }
-  }
-
-  const handleActionClick = (game: Game, action: 'edit' | 'delete' | 'rehost') => {
-      setSelectedGame(game);
-      setCurrentAction(action);
-
-      if (!game.password) {
-        performAction();
-        return;
-      }
-      
-      setIsActionModalOpen(true);
-      setPasswordInput('');
-  }
-
-  const handleConfirmAction = () => {
-    if (!selectedGame || !currentAction) return;
-
-    if (selectedGame.password !== passwordInput) {
-        toast({
-            variant: 'destructive',
-            title: 'Incorrect Password',
-            description: 'The password you entered is incorrect.',
-        });
-        return;
-    }
-    
-    setIsActionModalOpen(false);
-    performAction();
-  };
-
 
   const handleDelete = async (gameId: string) => {
     if (!firestore) {
@@ -207,7 +155,6 @@ export default function GamesListPage() {
         const newGameData: Game = {
           id: newGameId,
           title: gameToClone.title,
-          password: gameToClone.password,
           creatorId: "anonymous",
           rounds: newRounds,
           currentRoundIndex: 0,
@@ -233,26 +180,6 @@ export default function GamesListPage() {
         setRehostingGameId(null);
     }
   }
-
-  const getActionTitle = useCallback(() => {
-    switch (currentAction) {
-        case 'delete': return 'Confirm Deletion';
-        case 'edit': return 'Confirm Edit';
-        case 'rehost': return 'Confirm Re-host';
-        default: return 'Confirm Action';
-    }
-  }, [currentAction]);
-
-  const getActionDescription = useCallback(() => {
-    if (!selectedGame) return '';
-    switch (currentAction) {
-        case 'delete': return `To delete the game "${selectedGame.title}", please enter the password. This action cannot be undone.`;
-        case 'edit': return `To edit the game "${selectedGame.title}", please enter the password.`;
-        case 'rehost': return `To re-host a copy of the game "${selectedGame.title}", please enter the original password.`;
-        default: return 'Please enter the game password to proceed.';
-    }
-  }, [currentAction, selectedGame]);
-
 
   return (
     <div className="container mx-auto p-4 sm:p-6 md:p-8">
@@ -309,7 +236,7 @@ export default function GamesListPage() {
                   <p>{game.team2?.name || '-'}</p>
                 </TableCell>
                 <TableCell className="text-right space-x-1">
-                   <Button variant="outline" size="sm" onClick={() => handleActionClick(game, 'rehost')} disabled={rehostingGameId === game.id}>
+                   <Button variant="outline" size="sm" onClick={() => handleRehost(game)} disabled={rehostingGameId === game.id}>
                     {rehostingGameId === game.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
                     Re-host
                   </Button>
@@ -324,46 +251,35 @@ export default function GamesListPage() {
                       <Eye className="h-4 w-4" /> Spectate
                     </Link>
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleActionClick(game, 'edit')}>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/admin/edit/${game.id}`}>
                       <Edit className="h-4 w-4" /> Edit
+                    </Link>
                   </Button>
-                  <Button variant="destructive" size="sm" onClick={() => handleActionClick(game, 'delete')}>
-                        <Trash className="h-4 w-4" /> Delete
-                  </Button>
+                  <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                          <Button variant="destructive" size="sm">
+                              <Trash className="h-4 w-4" /> Delete
+                          </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                          <AlertDialogHeader>
+                          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                              This action cannot be undone. This will permanently delete the game <span className='font-mono font-bold'>{game.id}</span>.
+                          </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDelete(game.id)}>Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                  </AlertDialog>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-
-        <Dialog open={isActionModalOpen} onOpenChange={setIsActionModalOpen}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>{getActionTitle()}</DialogTitle>
-                    <DialogDescription>
-                        {getActionDescription()}
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-2 py-2">
-                    <Label htmlFor="password">Game Password</Label>
-                    <Input 
-                        id="password" 
-                        type="password" 
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleConfirmAction()}
-                    />
-                </div>
-                <DialogFooter>
-                    <DialogClose asChild>
-                        <Button variant="outline">Cancel</Button>
-                    </DialogClose>
-                    <Button onClick={handleConfirmAction}>
-                        <Lock className="mr-2 h-4 w-4" /> Confirm
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
         </>
       )}
     </div>

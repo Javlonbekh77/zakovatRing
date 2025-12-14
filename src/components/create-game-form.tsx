@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Loader2, Plus, Trash, Download, Upload, Save, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Plus, Trash, Download, Upload, Save, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -49,7 +49,6 @@ const roundSchema = z.object({
 
 const formSchema = z.object({
   title: z.string().min(3, 'Game title must be at least 3 characters.'),
-  password: z.string().optional(),
   rounds: z.array(roundSchema).min(1, 'At least one round is required.'),
 });
 
@@ -168,7 +167,6 @@ function LetterFields({ roundIndex, control, form }: { roundIndex: number, contr
 export default function CreateGameForm() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isPageLoading, setIsPageLoading] = useState(true);
-    const [isPasswordVisible, setIsPasswordVisible] = useState(false);
     const { toast } = useToast();
     const router = useRouter();
     const params = useParams();
@@ -185,7 +183,6 @@ export default function CreateGameForm() {
         resolver: zodResolver(formSchema),
         defaultValues: {
             title: '',
-            password: '',
             rounds: [{ mainQuestion: '', mainAnswer: '', letterQuestions: [] }],
         },
     });
@@ -220,7 +217,7 @@ export default function CreateGameForm() {
                     letterQuestions: letterQuestions,
                 };
             });
-            form.reset({ title: existingGame.title || '', password: existingGame.password || '', rounds: formRounds });
+            form.reset({ title: existingGame.title || '', rounds: formRounds });
         }
     }, [existingGame, isGameLoading, form]);
 
@@ -242,7 +239,7 @@ export default function CreateGameForm() {
             }
 
             const values = form.getValues();
-            const dataStr = JSON.stringify({ title: values.title, password: values.password, rounds: values.rounds }, null, 2);
+            const dataStr = JSON.stringify({ title: values.title, rounds: values.rounds }, null, 2);
             const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
             const exportFileDefaultName = `timeline_game_${isNewGame ? 'new' : gameId}.json`;
 
@@ -272,7 +269,6 @@ export default function CreateGameForm() {
                 
                 const dataToValidate = {
                     title: jsonData.title || 'Imported Game',
-                    password: jsonData.password || '',
                     rounds: jsonData.rounds,
                 };
 
@@ -307,16 +303,6 @@ export default function CreateGameForm() {
             return;
         }
         
-        if (!values.password && isNewGame) {
-             toast({
-                variant: 'destructive',
-                title: 'Password is required',
-                description: 'Please set a password for your new game.',
-            });
-            setIsSubmitting(false);
-            return;
-        }
-
         const finalGameId = isNewGame ? generateGameCode(4) : gameId;
         const gameDocRef = doc(firestore, 'games', finalGameId);
 
@@ -353,8 +339,7 @@ export default function CreateGameForm() {
                 const gameData: Game = {
                     id: finalGameId,
                     title: values.title,
-                    password: values.password,
-                    creatorId: "anonymous", // This can be updated if auth is re-introduced
+                    creatorId: "anonymous",
                     rounds: gameRounds,
                     currentRoundIndex: 0,
                     status: 'lobby',
@@ -371,7 +356,6 @@ export default function CreateGameForm() {
                 }
                  const gameData: Partial<Game> = {
                     title: values.title,
-                    password: values.password,
                     rounds: gameRounds,
                     lastActivityAt: serverTimestamp(),
                 };
@@ -426,7 +410,7 @@ export default function CreateGameForm() {
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
                         <Card>
-                            <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <CardContent className="p-6">
                                 <FormField
                                     control={form.control}
                                     name="title"
@@ -437,31 +421,6 @@ export default function CreateGameForm() {
                                                 <Input placeholder="e.g., History of Ancient Rome" {...field} />
                                             </FormControl>
                                             <FormDescription>A catchy title for your game.</FormDescription>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                 <FormField
-                                    control={form.control}
-                                    name="password"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-base">Game Password</FormLabel>
-                                            <div className="relative">
-                                                <FormControl>
-                                                    <Input type={isPasswordVisible ? 'text' : 'password'} placeholder="••••••••" {...field} />
-                                                </FormControl>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
-                                                    onClick={() => setIsPasswordVisible(prev => !prev)}
-                                                >
-                                                    {isPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                                </Button>
-                                            </div>
-                                            <FormDescription>{isNewGame ? 'A password is required for a new game.' : 'Game password.'}</FormDescription>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -584,5 +543,3 @@ export default function CreateGameForm() {
         </div>
     );
 }
-
-    
