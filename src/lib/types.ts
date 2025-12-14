@@ -50,11 +50,3 @@ export type FormLetterQuestion = {
     question: string;
     answer: string;
 }
-
-export interface Feedback {
-    id: string;
-    gameId: string;
-    teamName: string;
-    feedback: string;
-    createdAt: Timestamp;
-}
