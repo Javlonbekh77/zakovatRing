@@ -23,7 +23,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Game, Round, FormLetterQuestion } from '@/lib/types';
 import { useRouter, useParams } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { serverTimestamp, doc, setDoc } from 'firebase/firestore';
+import { serverTimestamp, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { useFirestore, useUser, useMemoFirebase, useDoc } from '@/firebase';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
@@ -261,8 +261,8 @@ export default function CreateGameForm() {
         reader.onload = (e) => {
             try {
                 const text = e.target?.result;
-                if (typeof text !== 'string') {
-                    throw new Error("File is not a valid text file.");
+                 if (!text || typeof text !== 'string') {
+                    throw new Error("File is empty or could not be read.");
                 }
                 const jsonData = JSON.parse(text);
 
@@ -275,9 +275,9 @@ export default function CreateGameForm() {
                         answer: lq.answer || ''
                     })) : []
                 }));
-
-                if (!roundsData) {
-                    throw new Error("JSON file is missing a 'rounds' array.");
+                
+                if (!roundsData || roundsData.length === 0) {
+                    throw new Error("JSON file is missing a 'rounds' array or it is empty.");
                 }
                 
                 const dataToValidate = {
@@ -297,6 +297,7 @@ export default function CreateGameForm() {
                 }
             } catch (err) {
                  if (err instanceof Error) {
+                    console.error("Error during file import:", err);
                     toast({ variant: 'destructive', title: 'Import Failed', description: err.message });
                  }
             }
@@ -317,6 +318,7 @@ export default function CreateGameForm() {
         }
 
         const finalGameId = isNewGame ? generateGameCode(4) : gameId;
+        const gameDocRef = doc(firestore, 'games', finalGameId);
 
         try {
             const gameRounds: Round[] = values.rounds.map(r => {
@@ -347,33 +349,42 @@ export default function CreateGameForm() {
                 };
             });
 
-            const gameDocRef = doc(firestore, 'games', finalGameId);
+            if (isNewGame) {
+                const gameData: Game = {
+                    id: finalGameId,
+                    title: values.title,
+                    password: values.password,
+                    creatorId: user.uid,
+                    rounds: gameRounds,
+                    currentRoundIndex: 0,
+                    status: 'lobby',
+                    createdAt: serverTimestamp(),
+                    lastActivityAt: serverTimestamp(),
+                };
+                
+                await setDoc(gameDocRef, gameData, { merge: true });
+                router.push(`/admin/created/${finalGameId}`);
 
-            const gameData: Game = {
-                id: finalGameId,
-                title: values.title,
-                password: values.password,
-                creatorId: user.uid,
-                rounds: gameRounds,
-                currentRoundIndex: 0,
-                status: 'lobby',
-                createdAt: isNewGame ? serverTimestamp() : existingGame?.createdAt || serverTimestamp(),
-                lastActivityAt: serverTimestamp(),
-            };
-            
-            await setDoc(gameDocRef, gameData, { merge: true });
+            } else {
+                 if (!existingGame) {
+                    throw new Error("Cannot update a game that does not exist.");
+                }
+                 const gameData: Partial<Game> = {
+                    title: values.title,
+                    password: values.password,
+                    rounds: gameRounds,
+                    lastActivityAt: serverTimestamp(),
+                };
+                await updateDoc(gameDocRef, gameData);
+                router.push('/admin/games');
+            }
+
 
             toast({
                 title: `Game ${isNewGame ? 'Created' : 'Saved'}!`,
                 description: `Game with code ${finalGameId} has been ${isNewGame ? 'created' : 'updated'}.`,
             });
             
-            if (isNewGame) {
-                router.push(`/admin/created/${finalGameId}`);
-            } else {
-                router.push('/admin/games');
-            }
-
         } catch (error) {
             if (error instanceof FirestorePermissionError) {
                 errorEmitter.emit('permission-error', error);
@@ -437,9 +448,9 @@ export default function CreateGameForm() {
                                         <FormItem>
                                             <FormLabel className="text-base">Game Password</FormLabel>
                                             <FormControl>
-                                                <Input type="password" placeholder="e.g., secret123" {...field} />
+                                                <Input type="password" placeholder="••••••••" {...field} />
                                             </FormControl>
-                                            <FormDescription>A password for players to join this game.</FormDescription>
+                                            <FormDescription>A password for game participants.</FormDescription>
                                             <FormMessage />
                                         </FormItem>
                                     )}
