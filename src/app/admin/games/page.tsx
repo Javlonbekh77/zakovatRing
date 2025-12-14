@@ -1,6 +1,6 @@
 'use client';
 
-import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase';
+import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
 import { Game, Round } from '@/lib/types';
 import {
   collection,
@@ -11,7 +11,6 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
-  where,
 } from 'firebase/firestore';
 import {
   Table,
@@ -34,7 +33,6 @@ import {
   Copy,
   EyeOff,
   Lock,
-  LogIn,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -51,7 +49,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 
 function generateGameCode(length: number): string {
   let result = '';
@@ -64,7 +62,6 @@ function generateGameCode(length: number): string {
 
 export default function GamesListPage() {
   const firestore = useFirestore();
-  const { user, isUserLoading } = useUser();
   const { toast } = useToast();
   const router = useRouter();
   const [rehostingGameId, setRehostingGameId] = useState<string | null>(null);
@@ -77,10 +74,10 @@ export default function GamesListPage() {
 
   const gamesQuery = useMemoFirebase(
     () =>
-      firestore && user
-        ? query(collection(firestore, 'games'), where('creatorId', '==', user.uid), orderBy('createdAt', 'desc'))
+      firestore
+        ? query(collection(firestore, 'games'), orderBy('createdAt', 'desc'))
         : null,
-    [firestore, user]
+    [firestore]
   );
   
   const { data: games, isLoading, error } = useCollection<Game>(gamesQuery);
@@ -105,13 +102,11 @@ export default function GamesListPage() {
       setSelectedGame(game);
       setCurrentAction(action);
 
-      // If game has no password, perform action immediately.
       if (!game.password) {
         performAction();
         return;
       }
-
-      // Otherwise, open the password confirmation dialog.
+      
       setIsActionModalOpen(true);
       setPasswordInput('');
   }
@@ -128,7 +123,6 @@ export default function GamesListPage() {
         return;
     }
     
-    // Close modal before performing action
     setIsActionModalOpen(false);
     performAction();
   };
@@ -196,8 +190,8 @@ export default function GamesListPage() {
   };
 
   const handleRehost = async (gameToClone: Game) => {
-    if (!firestore || !user) {
-        toast({variant: 'destructive', title: 'Error', description: 'You must be signed in to re-host a game.'});
+    if (!firestore) {
+        toast({variant: 'destructive', title: 'Error', description: 'Firestore not available.'});
         return;
     }
     setRehostingGameId(gameToClone.id);
@@ -216,7 +210,7 @@ export default function GamesListPage() {
           id: newGameId,
           title: gameToClone.title,
           password: gameToClone.password,
-          creatorId: user.uid,
+          creatorId: "anonymous",
           rounds: newRounds,
           currentRoundIndex: 0,
           status: 'lobby',
@@ -279,37 +273,19 @@ export default function GamesListPage() {
         <div></div>
       </div>
       
-      {isUserLoading && (
-        <div className="flex justify-center items-center gap-2 mt-8">
-          <Loader2 className="h-8 w-8 animate-spin" /> Authenticating...
-        </div>
-      )}
-
-      {!isUserLoading && !user && (
-         <div className="text-center mt-8 space-y-4">
-          <p className="text-lg">You must be logged in to view your hosted games.</p>
-           <Button asChild>
-             <Link href="/join">
-                <LogIn className="mr-2 h-4 w-4"/>
-                Login or Sign Up
-             </Link>
-           </Button>
-        </div>
-      )}
-
-      {user && isLoading && (
+      {isLoading && (
         <div className="flex justify-center items-center gap-2 mt-8">
           <Loader2 className="h-8 w-8 animate-spin" /> Loading games...
         </div>
       )}
       
-      {user && error && (
+      {error && (
         <div className="text-destructive text-center mt-8">
           Error loading games: {error.message}
         </div>
       )}
 
-      {user && !isLoading && games && (
+      {!isLoading && games && (
         <>
         <Table>
           <TableCaption>
@@ -353,7 +329,7 @@ export default function GamesListPage() {
                 </TableCell>
                 <TableCell className="text-right space-x-1">
                    <Button variant="outline" size="sm" onClick={() => handleActionClick(game, 'rehost')} disabled={rehostingGameId === game.id}>
-                    {rehostingGameId === game.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                    {rehostingGameId === game.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
                     Re-host
                   </Button>
                   

@@ -24,7 +24,7 @@ import { Game, Round, FormLetterQuestion } from '@/lib/types';
 import { useRouter, useParams } from 'next/navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { serverTimestamp, doc, setDoc, updateDoc } from 'firebase/firestore';
-import { useFirestore, useUser, useMemoFirebase, useDoc } from '@/firebase';
+import { useFirestore, useMemoFirebase, useDoc } from '@/firebase';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { Skeleton } from './ui/skeleton';
@@ -176,7 +176,6 @@ export default function CreateGameForm() {
     const isNewGame = gameId === 'new';
 
     const firestore = useFirestore();
-    const { user, isUserLoading } = useUser();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const gameDocRef = useMemoFirebase(() => firestore && !isNewGame ? doc(firestore, 'games', gameId) : null, [firestore, gameId, isNewGame]);
@@ -192,7 +191,7 @@ export default function CreateGameForm() {
     });
 
      useEffect(() => {
-        if (!isGameLoading && !isUserLoading) {
+        if (!isGameLoading) {
             setIsPageLoading(false);
         }
         if (existingGame) {
@@ -223,7 +222,7 @@ export default function CreateGameForm() {
             });
             form.reset({ title: existingGame.title || '', password: existingGame.password || '', rounds: formRounds });
         }
-    }, [existingGame, isGameLoading, isUserLoading, form]);
+    }, [existingGame, isGameLoading, form]);
 
     const { fields, append, remove } = useFieldArray({
         control: form.control,
@@ -312,8 +311,8 @@ export default function CreateGameForm() {
 
     async function onSubmit(values: FormData) {
         setIsSubmitting(true);
-        if (!firestore || !user) {
-            toast({ variant: 'destructive', title: 'Error', description: 'You must be signed in to create or save a game.' });
+        if (!firestore) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Firestore is not available.' });
             setIsSubmitting(false);
             return;
         }
@@ -355,7 +354,7 @@ export default function CreateGameForm() {
                     id: finalGameId,
                     title: values.title,
                     password: values.password,
-                    creatorId: user.uid,
+                    creatorId: "anonymous",
                     rounds: gameRounds,
                     currentRoundIndex: 0,
                     status: 'lobby',
@@ -571,7 +570,7 @@ export default function CreateGameForm() {
                         </Card>
 
 
-                        <Button type="submit" className="w-full" size="lg" disabled={isSubmitting || !user}>
+                        <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
                             {isSubmitting ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             ) : (

@@ -28,7 +28,7 @@ import { Button } from './ui/button';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Badge } from './ui/badge';
-import { useDoc, useFirestore, useMemoFirebase, useUser } from '@/firebase';
+import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
 import { doc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
 import {
   AlertDialog,
@@ -53,9 +53,10 @@ const INCORRECT_ANSWER_PENALTY = 20;
 const SKIP_ROUND_COST = 500;
 
 
-function AdminControls({ game, user }: { game: Game; user: any }) {
+function AdminControls({ game }: { game: Game;}) {
   const firestore = useFirestore();
   const { toast } = useToast();
+  const isAdmin = useSearchParams().get('admin') === 'true';
 
   const handleGameStatusToggle = async () => {
     if (!firestore) return;
@@ -101,7 +102,7 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
     }
   };
 
-  if (user?.uid !== game.creatorId) return null;
+  if (!isAdmin) return null;
 
   return (
     <Card className="shadow-lg border-amber-500/50 border-2 mt-6">
@@ -168,7 +169,7 @@ function AdminControls({ game, user }: { game: Game; user: any }) {
   );
 }
 
-function SpectatorView({ game, user }: { game: Game; user: any; }) {
+function SpectatorView({ game }: { game: Game; }) {
     const winnerTeamKey = useMemo(() => {
         if (game.status !== 'finished') return null;
 
@@ -187,7 +188,6 @@ function SpectatorView({ game, user }: { game: Game; user: any; }) {
     }, [game]);
 
     const winner = winnerTeamKey && winnerTeamKey !== 'draw' ? game[winnerTeamKey] : null;
-    const isAdmin = user?.uid === game.creatorId;
 
   if (!Array.isArray(game.rounds)) {
     return (
@@ -218,7 +218,7 @@ function SpectatorView({ game, user }: { game: Game; user: any; }) {
         </CardContent>
       </Card>
 
-      {isAdmin && <AdminControls game={game} user={user} />}
+      <AdminControls game={game} />
 
       {game.status === 'finished' && (
         <Card className="w-full text-center p-8 shadow-2xl animate-in fade-in zoom-in-95">
@@ -306,7 +306,6 @@ interface GameClientProps {
 
 export default function GameClient({ gameId }: GameClientProps) {
   const firestore = useFirestore();
-  const { user } = useUser();
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
@@ -350,7 +349,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   // Effect for joining the game.
   useEffect(() => {
     const assignTeam = async () => {
-        if (!teamNameFromUrl || !firestore || !gameId || !user || playerTeam || !game) return;
+        if (!teamNameFromUrl || !firestore || !gameId || playerTeam || !game) return;
         
         if (game.status !== 'lobby') {
             const alreadyJoined = game.team1?.name === teamNameFromUrl || game.team2?.name === teamNameFromUrl;
@@ -412,7 +411,7 @@ export default function GameClient({ gameId }: GameClientProps) {
     if (game && !playerTeam && !isAdminView) {
         assignTeam();
     }
-  }, [teamNameFromUrl, firestore, gameId, toast, user, game, playerTeam, isAdminView]);
+  }, [teamNameFromUrl, firestore, gameId, toast, game, playerTeam, isAdminView]);
   
   // Effect to manage the paused state locally based on live game data
   useEffect(() => {
@@ -426,7 +425,7 @@ export default function GameClient({ gameId }: GameClientProps) {
 
   // Effect for the points countdown timer.
   useEffect(() => {
-    if (!game || !playerTeam || game.status !== 'in_progress' || !gameDocRef) return;
+    if (!game || !playerTeam || game.status !== 'in_progress' || !gameDocRef || !firestore) return;
   
     const teamData = game[playerTeam];
     if (!teamData || !Array.isArray(game.rounds)) return;
@@ -703,7 +702,7 @@ export default function GameClient({ gameId }: GameClientProps) {
   }
   
   if (isSpectator || (isAdminView && !playerTeam)) {
-    return <SpectatorView game={game} user={user} />;
+    return <SpectatorView game={game} />;
   }
   
   const hasPlayerFinishedAllRounds = playerTeamData && playerTeamData.roundsCompleted >= game.rounds.length;

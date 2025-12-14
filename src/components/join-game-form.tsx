@@ -17,7 +17,7 @@ import { useState } from 'react';
 import { Loader2, LogIn } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { doc, getDoc } from 'firebase/firestore';
-import { useFirestore, useUser } from '@/firebase';
+import { useFirestore } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { Skeleton } from './ui/skeleton';
 import type { Game } from '@/lib/types';
@@ -39,7 +39,6 @@ export default function JoinGameForm() {
   const { toast } = useToast();
   const firestore = useFirestore();
   const router = useRouter();
-  const { user, isUserLoading } = useUser();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -130,22 +129,6 @@ export default function JoinGameForm() {
     }
   }
 
-  if (isUserLoading) {
-    return (
-        <div className="space-y-6">
-            <div className='space-y-2'>
-                <Skeleton className="h-4 w-1/4" />
-                <Skeleton className="h-10 w-full" />
-            </div>
-             <div className='space-y-2'>
-                <Skeleton className="h-4 w-1/4" />
-                <Skeleton className="h-10 w-full" />
-            </div>
-            <Skeleton className="h-11 w-full" />
-        </div>
-    )
-  }
-
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -194,7 +177,7 @@ export default function JoinGameForm() {
             </FormItem>
           )}
         />
-        <Button type="submit" className="w-full" size="lg" disabled={isSubmitting || !user}>
+        <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
           {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
           Join Game
         </Button>

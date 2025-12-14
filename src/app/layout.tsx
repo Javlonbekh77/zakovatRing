@@ -4,7 +4,6 @@ import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import Header from '@/components/header';
 import { FirebaseClientProvider } from '@/firebase';
-import AuthProvider from '@/components/auth-provider';
 
 export const metadata: Metadata = {
   title: 'TimeLine',
@@ -37,11 +36,9 @@ export default function RootLayout({
         )}
       >
         <FirebaseClientProvider>
-          <AuthProvider>
-            <Header />
-            <main className="flex-1 flex flex-col">{children}</main>
-            <Toaster />
-          </AuthProvider>
+          <Header />
+          <main className="flex-1 flex flex-col">{children}</main>
+          <Toaster />
         </FirebaseClientProvider>
       </body>
     </html>
