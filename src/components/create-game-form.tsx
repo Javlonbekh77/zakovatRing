@@ -49,7 +49,7 @@ const roundSchema = z.object({
 
 const formSchema = z.object({
   title: z.string().min(3, 'Game title must be at least 3 characters.'),
-  password: z.string().min(4, 'Password must be at least 4 characters.'), // New password field
+  password: z.string().optional(),
   rounds: z.array(roundSchema).min(1, 'At least one round is required.'),
 });
 
@@ -173,7 +173,7 @@ export default function CreateGameForm() {
     const router = useRouter();
     const params = useParams();
     const gameId = params.gameId as string;
-    const isNewGame = gameId === 'new';
+    const isNewGame = !params.gameId || params.gameId === 'new';
 
     const firestore = useFirestore();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -244,14 +244,14 @@ export default function CreateGameForm() {
             const values = form.getValues();
             const dataStr = JSON.stringify({ title: values.title, password: values.password, rounds: values.rounds }, null, 2);
             const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-            const exportFileDefaultName = `timeline_game_${gameId}.json`;
+            const exportFileDefaultName = `timeline_game_${isNewGame ? 'new' : gameId}.json`;
 
             let linkElement = document.createElement('a');
             linkElement.setAttribute('href', dataUri);
             linkElement.setAttribute('download', exportFileDefaultName);
             linkElement.click();
         });
-    }, [form, toast, gameId]);
+    }, [form, toast, gameId, isNewGame]);
     
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -266,24 +266,14 @@ export default function CreateGameForm() {
                 }
                 const jsonData = JSON.parse(text);
 
-                const roundsData = jsonData.rounds?.map((round: any) => ({
-                    mainQuestion: round.mainQuestion || '',
-                    mainAnswer: (round.mainAnswer || round.mainAnswerWord || '').toUpperCase(),
-                    letterQuestions: Array.isArray(round.letterQuestions) ? round.letterQuestions.map((lq: any) => ({
-                        letter: lq.letter || '',
-                        question: lq.question || '',
-                        answer: lq.answer || ''
-                    })) : []
-                }));
-                
-                if (!roundsData || roundsData.length === 0) {
+                if (!jsonData.rounds || jsonData.rounds.length === 0) {
                     throw new Error("JSON file is missing a 'rounds' array or it is empty.");
                 }
                 
                 const dataToValidate = {
-                    title: jsonData.title || jsonData.gameTitle || 'Imported Game',
+                    title: jsonData.title || 'Imported Game',
                     password: jsonData.password || '',
-                    rounds: roundsData
+                    rounds: jsonData.rounds,
                 };
 
                 const validation = formSchema.safeParse(dataToValidate);
@@ -313,6 +303,16 @@ export default function CreateGameForm() {
         setIsSubmitting(true);
         if (!firestore) {
             toast({ variant: 'destructive', title: 'Error', description: 'Firestore is not available.' });
+            setIsSubmitting(false);
+            return;
+        }
+        
+        if (!values.password && isNewGame) {
+             toast({
+                variant: 'destructive',
+                title: 'Password is required',
+                description: 'Please set a password for your new game.',
+            });
             setIsSubmitting(false);
             return;
         }
@@ -354,7 +354,7 @@ export default function CreateGameForm() {
                     id: finalGameId,
                     title: values.title,
                     password: values.password,
-                    creatorId: "anonymous",
+                    creatorId: "anonymous", // This can be updated if auth is re-introduced
                     rounds: gameRounds,
                     currentRoundIndex: 0,
                     status: 'lobby',
@@ -362,7 +362,7 @@ export default function CreateGameForm() {
                     lastActivityAt: serverTimestamp(),
                 };
                 
-                await setDoc(gameDocRef, gameData, { merge: true });
+                await setDoc(gameDocRef, gameData);
                 router.push(`/admin/created/${finalGameId}`);
 
             } else {
@@ -400,7 +400,7 @@ export default function CreateGameForm() {
         }
     }
 
-    if (isPageLoading) {
+    if (isPageLoading && !isNewGame) {
         return (
             <div className="flex-1 p-4 sm:p-6 md:p-8 bg-muted/20">
                  <div className="container mx-auto max-w-4xl">
@@ -461,7 +461,7 @@ export default function CreateGameForm() {
                                                     {isPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                                 </Button>
                                             </div>
-                                            <FormDescription>A password for game participants.</FormDescription>
+                                            <FormDescription>{isNewGame ? 'A password is required for a new game.' : 'Game password.'}</FormDescription>
                                             <FormMessage />
                                         </FormItem>
                                     )}
@@ -584,3 +584,5 @@ export default function CreateGameForm() {
         </div>
     );
 }
+
+    
