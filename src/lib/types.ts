@@ -36,7 +36,7 @@ export interface Game {
   rounds: Round[];
   currentRoundIndex: number; // "master" or spectator round index
   status: GameStatus;
-  forfeitedBy?: 'team1' | 'team2';
+  forfeitedBy?: 'team1' | 'team2' | null;
   winner?: 'team1' | 'team2' | null;
   team1?: Team;
   team2?: Team;

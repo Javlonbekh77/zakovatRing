@@ -452,6 +452,10 @@ export default function GameClient({ gameId }: GameClientProps) {
       return;
     }
 
+    const currentRoundForTimer = game.rounds[activeRoundIndex];
+    if (!currentRoundForTimer) return;
+
+
     const timer = setInterval(() => {
       // Use a transaction to decrement points safely
       runTransaction(firestore, async transaction => {
@@ -462,7 +466,7 @@ export default function GameClient({ gameId }: GameClientProps) {
         const roundToUpdate = freshGame.rounds[activeRoundIndex];
         
         // Final check inside transaction to prevent race conditions
-        if (freshGame.status !== 'in_progress' || freshGame[playerTeam!]?.completedRounds?.includes(activeRoundIndex)) {
+        if (freshGame.status !== 'in_progress' || freshGame[playerTeam!]?.completedRounds?.includes(activeRoundIndex) || !roundToUpdate) {
             return;
         }
 
@@ -551,13 +555,22 @@ export default function GameClient({ gameId }: GameClientProps) {
                     nextRoundToPlay = nextIndex;
                 }
                 
-                transaction.update(gameDocRef, {
+                const updatePayload: any = {
                     [`${playerTeam}.score`]: newScore,
                     [`${playerTeam}.completedRounds`]: newCompletedRounds,
                     [`${playerTeam}.roundsCompleted`]: newCompletedRounds.length,
                     [`${playerTeam}.currentRoundIndex`]: nextRoundToPlay,
                     lastActivityAt: serverTimestamp(),
-                });
+                };
+
+                // Check if the game should end
+                const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
+                const otherTeamData = serverGame[otherTeamKey];
+                if(newCompletedRounds.length >= serverGame.rounds.length && otherTeamData && otherTeamData.roundsCompleted >= serverGame.rounds.length) {
+                    updatePayload.status = 'finished';
+                }
+
+                transaction.update(gameDocRef, updatePayload);
 
                 // This toast happens outside the transaction, on the client immediately.
                  toast({
@@ -618,13 +631,23 @@ export default function GameClient({ gameId }: GameClientProps) {
             nextRoundToPlay = nextIndex;
         }
         
-        transaction.update(gameDocRef, {
+        const updatePayload: any = {
             [`${playerTeam}.score`]: newScore,
             [`${playerTeam}.completedRounds`]: newCompletedRounds,
             [`${playerTeam}.roundsCompleted`]: newCompletedRounds.length,
             [`${playerTeam}.currentRoundIndex`]: nextRoundToPlay,
             lastActivityAt: serverTimestamp(),
-        });
+        };
+
+        // Check if the game should end
+        const otherTeamKey = playerTeam === 'team1' ? 'team2' : 'team1';
+        const otherTeamData = serverGame[otherTeamKey];
+        if(newCompletedRounds.length >= serverGame.rounds.length && otherTeamData && otherTeamData.roundsCompleted >= serverGame.rounds.length) {
+            updatePayload.status = 'finished';
+        }
+
+        transaction.update(gameDocRef, updatePayload);
+
         toast({ title: 'Round Skipped', description: `You spent ${SKIP_ROUND_COST} points.` });
     }).catch(e => {
         console.error("Failed to sync skip round:", e);
@@ -668,12 +691,12 @@ export default function GameClient({ gameId }: GameClientProps) {
   const winnerTeamKey = useMemo(() => {
     if (!game || game.status !== 'finished') return null;
     
-    const team1 = game.team1;
-    const team2 = game.team2;
-
     if (game.forfeitedBy) {
         return game.forfeitedBy === 'team1' ? 'team2' : 'team1';
     }
+    
+    const team1 = game.team1;
+    const team2 = game.team2;
 
     if (!team1 || !team2) return null;
 
